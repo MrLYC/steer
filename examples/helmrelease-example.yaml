@@ -1,0 +1,54 @@
+apiVersion: steer.io/v1alpha1
+kind: HelmRelease
+metadata:
+  name: nginx-example
+  namespace: default
+spec:
+  # Chart 配置 - 从 Helm Repository 获取
+  chart:
+    source: repository
+    repository:
+      url: https://charts.bitnami.com/bitnami
+      name: nginx
+      version: 15.0.0
+  
+  # Values 配置 - 内联方式
+  values:
+    inline: |
+      replicaCount: 2
+      image:
+        repository: nginx
+        tag: "1.25.0"
+        pullPolicy: IfNotPresent
+      service:
+        type: ClusterIP
+        port: 80
+      resources:
+        limits:
+          cpu: 100m
+          memory: 128Mi
+        requests:
+          cpu: 50m
+          memory: 64Mi
+  
+  # 部署配置
+  deployment:
+    # 部署到独立的测试命名空间
+    namespace: test-nginx
+    # 自动创建命名空间
+    createNamespace: true
+    # 部署超时 5 分钟
+    timeout: 5m
+    # 失败后重试 3 次
+    retries: 3
+    # 部署完成后等待 30 秒,确保服务稳定
+    waitAfterDeploy: 30s
+    # 1 小时后自动卸载清理
+    autoUninstallAfter: 1h
+  
+  # 清理配置
+  cleanup:
+    # 卸载时删除命名空间
+    deleteNamespace: true
+    # 不清理镜像(公共镜像无需清理)
+    deleteImages: false

@@ -1,0 +1,147 @@
+apiVersion: steer.io/v1alpha1
+kind: HelmTestJob
+metadata:
+  name: nginx-test-job
+  namespace: default
+spec:
+  # 关联的 HelmRelease
+  helmReleaseRef:
+    name: nginx-example
+    namespace: default
+  
+  # 调度配置 - 一次性任务
+  schedule:
+    type: once
+  
+  # 测试配置
+  test:
+    # helm test 超时 10 分钟
+    timeout: 10m
+    # 显示测试日志
+    logs: true
+    # 不过滤测试(运行所有测试)
+    filter: ""
+  
+  # 钩子配置
+  hooks:
+    # 测试前钩子
+    preTest:
+      # 钩子 1: 校验 Values 配置
+      - name: validate-values
+        type: script
+        script: |
+          #!/bin/bash
+          set -e
+          echo "=== Validating values configuration ==="
+          
+          # 检查副本数是否合理
+          REPLICAS=$(kubectl get deployment -n test-nginx -l app.kubernetes.io/name=nginx -o jsonpath='{.items[0].spec.replicas}')
+          if [ "$REPLICAS" -lt 1 ] || [ "$REPLICAS" -gt 10 ]; then
+            echo "Error: Invalid replica count: $REPLICAS"
+            exit 1
+          fi
+          
+          echo "Replica count is valid: $REPLICAS"
+          echo "=== Validation passed ==="
+      
+      # 钩子 2: 检查依赖服务
+      - name: check-dependencies
+        type: script
+        script: |
+          #!/bin/bash
+          set -e
+          echo "=== Checking dependencies ==="
+          
+          # 检查 DNS 是否正常
+          nslookup kubernetes.default.svc.cluster.local
+          
+          # 检查网络连通性
+          curl -s https://charts.bitnami.com > /dev/null
+          
+          echo "=== Dependencies check passed ==="
+    
+    # 测试后钩子
+    postTest:
+      # 钩子 1: 发送测试结果通知
+      - name: notify-result
+        type: script
+        script: |
+          #!/bin/bash
+          echo "=== Sending test result notification ==="
+          
+          # 这里可以集成 Slack、钉钉等通知服务
+          # 示例: 打印测试结果
+          echo "Test completed successfully!"
+          echo "Release: nginx-example"
+          echo "Namespace: test-nginx"
+          echo "Timestamp: $(date)"
+          
+          # 实际使用时可以调用 webhook
+          # curl -X POST https://hooks.slack.com/services/YOUR/WEBHOOK/URL \
+          #   -H 'Content-Type: application/json' \
+          #   -d '{"text":"Steer test completed: nginx-example"}'
+      
+      # 钩子 2: 归档测试日志
+      - name: archive-logs
+        type: script
+        script: |
+          #!/bin/bash
+          echo "=== Archiving test logs ==="
+          
+          # 收集测试日志
+          kubectl logs -n test-nginx -l app.kubernetes.io/name=nginx --tail=100 > /tmp/test-logs.txt
+          
+          # 这里可以上传到 S3、OSS 等对象存储
+          echo "Logs collected and ready for archival"
+          cat /tmp/test-logs.txt
+  
+  # 清理配置
+  cleanup:
+    # 测试完成后删除命名空间
+    deleteNamespace: true
+    # 不清理镜像
+    deleteImages: false
+
+---
+apiVersion: steer.io/v1alpha1
+kind: HelmTestJob
+metadata:
+  name: nginx-cron-test-job
+  namespace: default
+spec:
+  # 关联的 HelmRelease
+  helmReleaseRef:
+    name: nginx-example
+    namespace: default
+  
+  # 调度配置 - 周期性任务(每天凌晨 2 点执行)
+  schedule:
+    type: cron
+    cron: "0 2 * * *"
+    timezone: Asia/Shanghai
+  
+  # 测试配置
+  test:
+    timeout: 10m
+    logs: true
+  
+  # 钩子配置
+  hooks:
+    preTest:
+      - name: validate-values
+        type: script
+        script: |
+          #!/bin/bash
+          echo "Running pre-test validation..."
+    
+    postTest:
+      - name: notify-result
+        type: script
+        script: |
+          #!/bin/bash
+          echo "Sending daily test report..."
+  
+  # 清理配置
+  cleanup:
+    deleteNamespace: true
+    deleteImages: false
