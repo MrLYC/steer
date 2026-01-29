@@ -1,0 +1,12 @@
+apiVersion: steer.steer.io/v1alpha1
+kind: HelmTestJob
+metadata:
+  labels:
+    app.kubernetes.io/name: helmtestjob
+    app.kubernetes.io/instance: helmtestjob-sample
+    app.kubernetes.io/part-of: steer-operator
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/created-by: steer-operator
+  name: helmtestjob-sample
+spec:
+  # TODO(user): Add fields here

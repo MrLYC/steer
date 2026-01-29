@@ -1,0 +1,58 @@
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: manager-role
+rules:
+- apiGroups:
+  - steer.steer.io
+  resources:
+  - helmreleases
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - steer.steer.io
+  resources:
+  - helmreleases/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - steer.steer.io
+  resources:
+  - helmreleases/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - steer.steer.io
+  resources:
+  - helmtestjobs
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - steer.steer.io
+  resources:
+  - helmtestjobs/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - steer.steer.io
+  resources:
+  - helmtestjobs/status
+  verbs:
+  - get
+  - patch
+  - update

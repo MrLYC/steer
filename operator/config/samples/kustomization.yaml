@@ -1,0 +1,5 @@
+## Append samples of your project ##
+resources:
+- steer_v1alpha1_helmrelease.yaml
+- steer_v1alpha1_helmtestjob.yaml
+#+kubebuilder:scaffold:manifestskustomizesamples

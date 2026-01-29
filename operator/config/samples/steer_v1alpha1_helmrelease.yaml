@@ -1,0 +1,12 @@
+apiVersion: steer.steer.io/v1alpha1
+kind: HelmRelease
+metadata:
+  labels:
+    app.kubernetes.io/name: helmrelease
+    app.kubernetes.io/instance: helmrelease-sample
+    app.kubernetes.io/part-of: steer-operator
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/created-by: steer-operator
+  name: helmrelease-sample
+spec:
+  # TODO(user): Add fields here

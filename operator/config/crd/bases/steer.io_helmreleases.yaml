@@ -1,0 +1,226 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.14.0
+  name: helmreleases.steer.io
+spec:
+  group: steer.io
+  names:
+    kind: HelmRelease
+    listKind: HelmReleaseList
+    plural: helmreleases
+    singular: helmrelease
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .status.phase
+      name: Phase
+      type: string
+    - jsonPath: .status.deployedAt
+      name: Deployed
+      priority: 1
+      type: date
+    - jsonPath: .status.message
+      name: Message
+      priority: 1
+      type: string
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: HelmRelease is the Schema for the helmreleases API
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: HelmReleaseSpec defines the desired state of HelmRelease.
+            properties:
+              chart:
+                description: ChartSpec defines how to locate a Helm chart.
+                properties:
+                  git:
+                    description: Git specifies the Git repository chart source when
+                      source=git.
+                    properties:
+                      path:
+                        description: Path is the path to the chart within the repository.
+                        type: string
+                      ref:
+                        description: Ref is the Git ref (branch, tag, or commit).
+                        type: string
+                      url:
+                        description: URL is the Git repository URL.
+                        type: string
+                    required:
+                    - path
+                    - url
+                    type: object
+                  local:
+                    description: Local specifies a local filesystem path chart source
+                      when source=local.
+                    properties:
+                      path:
+                        description: Path is the local filesystem path to a chart
+                          directory.
+                        type: string
+                    required:
+                    - path
+                    type: object
+                  repository:
+                    description: Repository specifies the Helm repository chart source
+                      when source=repository.
+                    properties:
+                      name:
+                        description: Name is the chart name.
+                        type: string
+                      url:
+                        description: URL is the Helm repository URL.
+                        type: string
+                      version:
+                        description: Version is the chart version.
+                        type: string
+                    required:
+                    - name
+                    - url
+                    type: object
+                  source:
+                    default: repository
+                    description: Source indicates how the chart should be fetched.
+                    enum:
+                    - repository
+                    - git
+                    - local
+                    type: string
+                type: object
+              cleanup:
+                properties:
+                  deleteImages:
+                    description: DeleteImages indicates whether images should be deleted
+                      (optional).
+                    type: boolean
+                  deleteNamespace:
+                    description: DeleteNamespace indicates whether the target namespace
+                      should be deleted.
+                    type: boolean
+                type: object
+              deployment:
+                properties:
+                  autoUninstallAfter:
+                    description: AutoUninstallAfter is the duration after which the
+                      release should be uninstalled.
+                    type: string
+                  createNamespace:
+                    description: CreateNamespace indicates whether the namespace should
+                      be created.
+                    type: boolean
+                  namespace:
+                    description: Namespace is the target namespace for the Helm release.
+                    type: string
+                  retries:
+                    description: Retries is the number of retries on failure.
+                    format: int32
+                    type: integer
+                  timeout:
+                    description: Timeout is the Helm install/upgrade timeout.
+                    type: string
+                  waitAfterDeploy:
+                    description: WaitAfterDeploy is an additional wait after deploy.
+                    type: string
+                required:
+                - namespace
+                type: object
+              values:
+                properties:
+                  inline:
+                    description: Inline contains raw YAML values.
+                    type: string
+                  valuesFrom:
+                    description: ValuesFrom references ConfigMaps/Secrets containing
+                      values YAML.
+                    items:
+                      properties:
+                        configMapKeyRef:
+                          description: ConfigMapKeyRef references a key within a ConfigMap.
+                          properties:
+                            key:
+                              type: string
+                            name:
+                              type: string
+                          required:
+                          - key
+                          - name
+                          type: object
+                        secretKeyRef:
+                          description: SecretKeyRef references a key within a Secret.
+                          properties:
+                            key:
+                              type: string
+                            name:
+                              type: string
+                          required:
+                          - key
+                          - name
+                          type: object
+                      type: object
+                    type: array
+                type: object
+            required:
+            - chart
+            - deployment
+            type: object
+          status:
+            description: HelmReleaseStatus defines the observed state of HelmRelease.
+            properties:
+              deployedAt:
+                format: date-time
+                type: string
+              helmRelease:
+                properties:
+                  name:
+                    type: string
+                  status:
+                    type: string
+                  version:
+                    format: int64
+                    type: integer
+                type: object
+              message:
+                type: string
+              phase:
+                description: HelmReleasePhase defines the lifecycle phase of a HelmRelease.
+                enum:
+                - Pending
+                - Installing
+                - Installed
+                - Failed
+                - Uninstalling
+                - Uninstalled
+                type: string
+              retryCount:
+                format: int32
+                type: integer
+              uninstallAt:
+                format: date-time
+                type: string
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}
