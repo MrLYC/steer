@@ -18,6 +18,7 @@ package controller
 
 import (
 	"context"
+	"time"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -83,7 +84,7 @@ var _ = Describe("HelmTestJob Controller", func() {
 			By("Cleanup the specific resource instance HelmTestJob")
 			Expect(k8sClient.Delete(ctx, resource)).To(Succeed())
 		})
-		It("should successfully reconcile the resource", func() {
+		It("should successfully reconcile the once schedule resource", func() {
 			By("Reconciling the created resource")
 			controllerReconciler := &HelmTestJobReconciler{
 				Client: k8sClient,
@@ -94,8 +95,34 @@ var _ = Describe("HelmTestJob Controller", func() {
 				NamespacedName: typeNamespacedName,
 			})
 			Expect(err).NotTo(HaveOccurred())
-			// TODO(user): Add more specific assertions depending on your controller's reconciliation logic.
-			// Example: If you expect a certain status condition after reconciliation, verify it here.
+
+			updated := &steerv1alpha1.HelmTestJob{}
+			Expect(k8sClient.Get(ctx, typeNamespacedName, updated)).To(Succeed())
+			Expect(updated.Status.Phase).To(Equal(steerv1alpha1.HelmTestJobPhasePending))
+			Expect(updated.Status.NextScheduleTime).NotTo(BeNil())
+		})
+
+		It("should successfully reconcile the cron schedule resource", func() {
+			By("Updating the resource to use cron schedule")
+			resource := &steerv1alpha1.HelmTestJob{}
+			Expect(k8sClient.Get(ctx, typeNamespacedName, resource)).To(Succeed())
+			resource.Spec.Schedule.Type = steerv1alpha1.ScheduleTypeCron
+			resource.Spec.Schedule.Cron = "* * * * *"
+			resource.Spec.Schedule.Timezone = "Asia/Shanghai"
+			Expect(k8sClient.Update(ctx, resource)).To(Succeed())
+
+			controllerReconciler := &HelmTestJobReconciler{
+				Client: k8sClient,
+				Scheme: k8sClient.Scheme(),
+			}
+
+			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: typeNamespacedName})
+			Expect(err).NotTo(HaveOccurred())
+
+			updated := &steerv1alpha1.HelmTestJob{}
+			Expect(k8sClient.Get(ctx, typeNamespacedName, updated)).To(Succeed())
+			Expect(updated.Status.NextScheduleTime).NotTo(BeNil())
+			Expect(updated.Status.NextScheduleTime.Time.After(time.Now().Add(-1 * time.Minute))).To(BeTrue())
 		})
 	})
 })
