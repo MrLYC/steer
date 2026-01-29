@@ -9,9 +9,11 @@ spec:
     name: nginx-example
     namespace: default
   
-  # 调度配置 - 一次性任务
+  # 调度配置 - 一次性任务(延迟 5 分钟执行)
   schedule:
     type: once
+    # 延迟执行时间
+    delay: 5m
   
   # 测试配置
   test:
@@ -29,10 +31,26 @@ spec:
       # 钩子 1: 校验 Values 配置
       - name: validate-values
         type: script
+        # 环境变量配置 - 引用 HelmRelease 字段
+        env:
+          - name: RELEASE_NAME
+            valueFrom:
+              helmReleaseRef:
+                fieldPath: metadata.name
+          - name: RELEASE_NAMESPACE
+            valueFrom:
+              helmReleaseRef:
+                fieldPath: spec.deployment.namespace
+          - name: TEST_JOB_NAME
+            valueFrom:
+              fieldPath: metadata.name
         script: |
           #!/bin/bash
           set -e
           echo "=== Validating values configuration ==="
+          echo "Test Job: $TEST_JOB_NAME"
+          echo "Release: $RELEASE_NAME"
+          echo "Namespace: $RELEASE_NAMESPACE"
           
           # 检查副本数是否合理
           REPLICAS=$(kubectl get deployment -n test-nginx -l app.kubernetes.io/name=nginx -o jsonpath='{.items[0].spec.replicas}')
@@ -65,15 +83,36 @@ spec:
       # 钩子 1: 发送测试结果通知
       - name: notify-result
         type: script
+        # 环境变量配置 - 引用 HelmTestJob 的 status 字段
+        env:
+          - name: TEST_STATUS
+            valueFrom:
+              fieldPath: status.phase
+          - name: TEST_START_TIME
+            valueFrom:
+              fieldPath: status.startTime
+          - name: TEST_COMPLETION_TIME
+            valueFrom:
+              fieldPath: status.completionTime
+          - name: RELEASE_NAME
+            valueFrom:
+              helmReleaseRef:
+                fieldPath: metadata.name
+          - name: RELEASE_NAMESPACE
+            valueFrom:
+              helmReleaseRef:
+                fieldPath: spec.deployment.namespace
         script: |
           #!/bin/bash
           echo "=== Sending test result notification ==="
           
           # 这里可以集成 Slack、钉钉等通知服务
           # 示例: 打印测试结果
-          echo "Test completed successfully!"
-          echo "Release: nginx-example"
-          echo "Namespace: test-nginx"
+          echo "Test Status: $TEST_STATUS"
+          echo "Release: $RELEASE_NAME"
+          echo "Namespace: $RELEASE_NAMESPACE"
+          echo "Start Time: $TEST_START_TIME"
+          echo "Completion Time: $TEST_COMPLETION_TIME"
           echo "Timestamp: $(date)"
           
           # 实际使用时可以调用 webhook

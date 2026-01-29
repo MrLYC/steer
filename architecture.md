@@ -19,9 +19,10 @@ Steer 是一个基于 Kubernetes Operator 的 Helm 烟雾测试管理系统。�
 - **Helm SDK**: 用于程序化调用 Helm 命令
 
 ### Web 前端
-- **React + TypeScript**: 现代化前端框架
-- **Ant Design / Material-UI**: UI 组件库
-- **React Query**: 数据获取和状态管理
+- **Vue 3 + TypeScript**: 现代化前端框架
+- **TDesign**: 腾讯开源的企业级 UI 组件库
+- **Pinia**: Vue 3 官方推荐的状态管理库
+- **VueUse**: Vue 组合式 API 工具集
 
 ### Web 后端
 - **Go + Gin/Echo**: 轻量级 Web 框架
@@ -125,14 +126,15 @@ spec:
     name: example-release
     namespace: default
   
-  # 调度类型: once, cron
+  # 调度类型: once,  # 调度配置
   schedule:
     type: once
+    # 延迟执行时间(仅 type=once 时有效)
+    delay: 5m
     # Cron 表达式(仅 type=cron 时有效)
     cron: "0 2 * * *"
     # 时区
     timezone: Asia/Shanghai
-  
   # 测试配置
   test:
     # helm test 超时时间
@@ -148,9 +150,19 @@ spec:
     preTest:
       - name: validate-values
         type: script
+        # 环境变量配置(可引用 HelmRelease 和 HelmTestJob 的字段)
+        env:
+          - name: RELEASE_NAME
+            valueFrom:
+              helmReleaseRef:
+                fieldPath: metadata.name
+          - name: RELEASE_NAMESPACE
+            valueFrom:
+              helmReleaseRef:
+                fieldPath: spec.deployment.namespace
         script: |
           #!/bin/bash
-          echo "Validating values..."
+          echo "Validating values for release: $RELEASE_NAME in namespace: $RELEASE_NAMESPACE"
           # 自定义校验逻辑
       - name: check-dependencies
         type: kubernetes
@@ -168,10 +180,25 @@ spec:
     postTest:
       - name: notify-result
         type: script
+        # 引用 HelmTestJob 的 status 字段
+        env:
+          - name: TEST_STATUS
+            valueFrom:
+              fieldPath: status.phase
+          - name: TEST_START_TIME
+            valueFrom:
+              fieldPath: status.startTime
+          - name: RELEASE_NAME
+            valueFrom:
+              helmReleaseRef:
+                fieldPath: metadata.name
         script: |
           #!/bin/bash
           echo "Notifying test result..."
-          # 发送通知
+          echo "Test: $RELEASE_NAME"
+          echo "Status: $TEST_STATUS"
+          echo "Started at: $TEST_START_TIME"
+          # 发送通知到 Slack/钉钉等
       - name: archive-logs
         type: script
         script: |
@@ -222,7 +249,7 @@ status:
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │                         Web UI                               │
-│                   (React + TypeScript)                       │
+│                  (Vue 3 + TypeScript)                        │
 └─────────────────────────────────────────────────────────────┘
                               │
                               │ HTTP/WebSocket
@@ -475,6 +502,10 @@ Operator 需要以下 RBAC 权限:
 1. **钩子系统**:
    - 支持 Script 类型钩子
    - 支持 Kubernetes Job 类型钩子
+   - **环境变量引用**: 钩子可通过环境变量引用 HelmRelease 和 HelmTestJob 的字段
+     - 引用 HelmTestJob 字段: `fieldPath: status.phase`
+     - 引用 HelmRelease 字段: `helmReleaseRef.fieldPath: metadata.name`
+     - 应用场景: 测试前后通知、动态配置、日志归档等
    - 未来可扩展 HTTP Webhook 类型
 
 2. **插件机制**:

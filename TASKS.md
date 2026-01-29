@@ -189,11 +189,11 @@
 ## M3: Web UI 前端开发 (3-4 周)
 
 ### 3.1 前端项目初始化
-- [ ] 使用 Vite 创建 React + TypeScript 项目
-- [ ] 集成 TailwindCSS
-- [ ] 集成 Ant Design
-- [ ] 配置路由 (React Router)
-- [ ] 配置状态管理 (React Query)
+- [ ] 使用 Vite 创建 Vue 3 + TypeScript 项目
+- [ ] 集成 TDesign 组件库
+- [ ] 配置路由 (Vue Router)
+- [ ] 配置状态管理 (Pinia)
+- [ ] 集成 VueUse 工具集
 
 ### 3.2 API 客户端封装
 - [ ] 创建 `src/api/client.ts`

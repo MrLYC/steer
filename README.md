@@ -57,15 +57,24 @@ Steer 提供了一个现代化的 Web 界面,包括:
 
 ### 安装 Steer
 
-使用 Helm 安装 Steer Operator 和 Web 界面:
+使用 Helm 从 Git 仓库安装 Steer Operator 和 Web 界面:
 
 ```bash
-# 添加 Steer Helm Repository
-helm repo add steer https://steer.io/charts
-helm repo update
+# 克隆仓库
+git clone https://github.com/yourusername/steer.git
+cd steer
 
-# 安装 Steer
-helm install steer steer/steer \
+# 使用 Helm 安装
+helm install steer ./charts/steer \
+  --namespace steer-system \
+  --create-namespace
+```
+
+或者直接从 Git 仓库安装(不需要克隆):
+
+```bash
+helm install steer \
+  oci://ghcr.io/yourusername/steer/charts/steer \
   --namespace steer-system \
   --create-namespace
 ```
@@ -178,7 +187,7 @@ kubectl get helmtestjob nginx-test-job -o yaml
 ## 技术栈
 
 - **后端**: Go, Kubebuilder, controller-runtime, Helm SDK
-- **前端**: React, TypeScript, Ant Design, TailwindCSS
+- **前端**: Vue 3, TypeScript, TDesign, Pinia, VueUse
 - **部署**: Kubernetes, Helm, Docker
 
 ## 贡献

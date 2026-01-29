@@ -580,6 +580,9 @@ type HelmReleaseReference struct {
 type ScheduleSpec struct {
     // 调度类型: once, cron
     Type string `json:"type"`
+
+    // 延迟执行时间(仅 type=once 时有效)
+    Delay *metav1.Duration `json:"delay,omitempty"`
     
     // Cron 表达式
     Cron string `json:"cron,omitempty"`
@@ -610,12 +613,30 @@ type HooksSpec struct {
 type Hook struct {
     Name string `json:"name"`
     Type string `json:"type"` // script, kubernetes
+
+    // 环境变量
+    Env []EnvVar `json:"env,omitempty"`
     
     // Script Hook
     Script string `json:"script,omitempty"`
     
     // Kubernetes Hook
     Kubernetes *KubernetesHook `json:"kubernetes,omitempty"`
+}
+
+type EnvVar struct {
+    Name      string      `json:"name"`
+    Value     string      `json:"value,omitempty"`
+    ValueFrom *EnvVarSource `json:"valueFrom,omitempty"`
+}
+
+type EnvVarSource struct {
+    FieldPath        string                `json:"fieldPath,omitempty"`
+    HelmReleaseRef   *HelmReleaseFieldSelector `json:"helmReleaseRef,omitempty"`
+}
+
+type HelmReleaseFieldSelector struct {
+    FieldPath string `json:"fieldPath"`
 }
 
 type KubernetesHook struct {
@@ -757,6 +778,15 @@ func (r *HelmTestJobReconciler) reconcileOnce(ctx context.Context, tj *steerv1al
     // 如果正在运行,等待完成
     if tj.Status.Phase == "Running" {
         return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
+    }
+
+    // 检查是否需要延迟执行
+    if tj.Spec.Schedule.Delay != nil && tj.Status.StartTime == nil {
+        delay := tj.Spec.Schedule.Delay.Duration
+        if delay > 0 {
+            logger.Info("Delaying test job execution", "delay", delay)
+            return ctrl.Result{RequeueAfter: delay}, nil
+        }
     }
 
     // 执行测试
@@ -1028,12 +1058,18 @@ func (e *Executor) executeHook(ctx context.Context, hook steerv1alpha1.Hook) (st
     }
 }
 
-func (e *Executor) executeScriptHook(ctx context.Context, hook steerv1alpha1.Hook) (steerv1alpha1.HookResult, error) {
+func (e *Executor) executeScriptHook(ctx context.Context, hook steerv1alpha1.Hook, tj *steerv1alpha1.HelmTestJob, hr *steerv1alpha1.HelmRelease) (steerv1alpha1.HookResult, error) {
+    // 解析环境变量
+    envVars, err := e.resolveEnvVars(ctx, hook.Env, tj, hr)
+    if err != nil {
+        return steerv1alpha1.HookResult{Name: hook.Name}, err
+    }
+
     // 创建 ConfigMap 存储脚本
     cm := &corev1.ConfigMap{
         ObjectMeta: metav1.ObjectMeta{
-            Name:      fmt.Sprintf("hook-%s", hook.Name),
-            Namespace: "default",
+            Name:      fmt.Sprintf("hook-%s-%s", tj.Name, hook.Name),
+            Namespace: tj.Namespace,
         },
         Data: map[string]string{
             "script.sh": hook.Script,
@@ -1046,8 +1082,8 @@ func (e *Executor) executeScriptHook(ctx context.Context, hook steerv1alpha1.Hoo
     // 创建 Job 执行脚本
     job := &batchv1.Job{
         ObjectMeta: metav1.ObjectMeta{
-            Name:      fmt.Sprintf("hook-%s", hook.Name),
-            Namespace: "default",
+            Name:      fmt.Sprintf("hook-%s-%s", tj.Name, hook.Name),
+            Namespace: tj.Namespace,
         },
         Spec: batchv1.JobSpec{
             Template: corev1.PodTemplateSpec{
@@ -1057,6 +1093,7 @@ func (e *Executor) executeScriptHook(ctx context.Context, hook steerv1alpha1.Hoo
                             Name:    "hook",
                             Image:   "bash:latest",
                             Command: []string{"/bin/bash", "/scripts/script.sh"},
+                            Env:     envVars,
                             VolumeMounts: []corev1.VolumeMount{
                                 {
                                     Name:      "script",
@@ -1094,6 +1131,26 @@ func (e *Executor) executeScriptHook(ctx context.Context, hook steerv1alpha1.Hoo
         Phase:   "Succeeded",
         Message: "Hook executed successfully",
     }, nil
+}
+
+func (e *Executor) resolveEnvVars(ctx context.Context, envs []steerv1alpha1.EnvVar, tj *steerv1alpha1.HelmTestJob, hr *steerv1alpha1.HelmRelease) ([]corev1.EnvVar, error) {
+    var coreEnvs []corev1.EnvVar
+    for _, env := range envs {
+        coreEnv := corev1.EnvVar{Name: env.Name}
+        if env.Value != "" {
+            coreEnv.Value = env.Value
+        } else if env.ValueFrom != nil {
+            // 实现从 CRD 字段获取值的逻辑
+            // 这里简化实现,实际需要使用 JSONPath 解析
+            if env.ValueFrom.HelmReleaseRef != nil {
+                coreEnv.Value = "value_from_helmrelease"
+            } else {
+                coreEnv.Value = "value_from_helmtestjob"
+            }
+        }
+        coreEnvs = append(coreEnvs, coreEnv)
+    }
+    return coreEnvs, nil
 }
 
 func (e *Executor) executeKubernetesHook(ctx context.Context, hook steerv1alpha1.Hook) (steerv1alpha1.HookResult, error) {
@@ -1203,7 +1260,7 @@ func createHelmRelease(c *gin.Context, k8sClient client.Client) {
 
 ---
 
-## Web UI 实现
+## Web UI 实现 (Vue 3 + TDesign)
 
 ### 项目结构
 
@@ -1211,18 +1268,20 @@ func createHelmRelease(c *gin.Context, k8sClient client.Client) {
 steer-web/
 ├── src/
 │   ├── components/
-│   │   ├── HelmReleaseList.tsx
-│   │   ├── HelmReleaseForm.tsx
-│   │   ├── HelmTestJobList.tsx
-│   │   └── HelmTestJobForm.tsx
-│   ├── pages/
-│   │   ├── Dashboard.tsx
-│   │   ├── HelmReleases.tsx
-│   │   └── HelmTestJobs.tsx
+│   │   ├── HelmReleaseList.vue
+│   │   ├── HelmReleaseForm.vue
+│   │   ├── HelmTestJobList.vue
+│   │   └── HelmTestJobForm.vue
+│   ├── views/
+│   │   ├── Dashboard.vue
+│   │   ├── HelmReleases.vue
+│   │   └── HelmTestJobs.vue
 │   ├── api/
 │   │   └── client.ts
-│   ├── App.tsx
-│   └── main.tsx
+│   ├── stores/
+│   │   └── index.ts
+│   ├── App.vue
+│   └── main.ts
 ├── package.json
 └── vite.config.ts
 ```
@@ -1278,70 +1337,58 @@ export const helmTestJobApi = {
 
 ### HelmRelease 列表组件
 
-在 `src/components/HelmReleaseList.tsx` 中实现:
+在 `src/components/HelmReleaseList.vue` 中实现:
 
-```typescript
-import React, { useEffect, useState } from 'react';
-import { Table, Tag } from 'antd';
+```vue
+<template>
+  <t-table
+    :data="releases"
+    :columns="columns"
+    :loading="loading"
+    row-key="metadata.name"
+  >
+    <template #status.phase="{ row }">
+      <t-tag :theme="getTagTheme(row.status.phase)">{{ row.status.phase }}</t-tag>
+    </template>
+  </t-table>
+</template>
+
+<script setup lang="ts">
+import { ref, onMounted } from 'vue';
 import { helmReleaseApi, HelmRelease } from '../api/client';
 
-const HelmReleaseList: React.FC = () => {
-  const [releases, setReleases] = useState<HelmRelease[]>([]);
-  const [loading, setLoading] = useState(true);
+const releases = ref<HelmRelease[]>([]);
+const loading = ref(true);
 
-  useEffect(() => {
-    loadReleases();
-  }, []);
+const columns = [
+  { colKey: 'metadata.name', title: 'Name' },
+  { colKey: 'metadata.namespace', title: 'Namespace' },
+  { colKey: 'status.phase', title: 'Phase' },
+  { colKey: 'status.deployedAt', title: 'Deployed At' },
+];
 
-  const loadReleases = async () => {
-    try {
-      const response = await helmReleaseApi.list();
-      setReleases(response.data);
-    } catch (error) {
-      console.error('Failed to load releases:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
+onMounted(async () => {
+  try {
+    const response = await helmReleaseApi.list();
+    releases.value = response.data;
+  } catch (error) {
+    console.error('Failed to load releases:', error);
+  } finally {
+    loading.value = false;
+  }
+});
 
-  const columns = [
-    {
-      title: 'Name',
-      dataIndex: ['metadata', 'name'],
-      key: 'name',
-    },
-    {
-      title: 'Namespace',
-      dataIndex: ['metadata', 'namespace'],
-      key: 'namespace',
-    },
-    {
-      title: 'Phase',
-      dataIndex: ['status', 'phase'],
-      key: 'phase',
-      render: (phase: string) => {
-        const color = phase === 'Installed' ? 'green' : phase === 'Failed' ? 'red' : 'blue';
-        return <Tag color={color}>{phase}</Tag>;
-      },
-    },
-    {
-      title: 'Deployed At',
-      dataIndex: ['status', 'deployedAt'],
-      key: 'deployedAt',
-    },
-  ];
-
-  return (
-    <Table
-      dataSource={releases}
-      columns={columns}
-      loading={loading}
-      rowKey={(record) => record.metadata.name}
-    />
-  );
+const getTagTheme = (phase: string) => {
+  switch (phase) {
+    case 'Installed':
+      return 'success';
+    case 'Failed':
+      return 'danger';
+    default:
+      return 'primary';
+  }
 };
-
-export default HelmReleaseList;
+</script>
 ```
 
 ---
@@ -1419,8 +1466,13 @@ docker build -t steer/web:latest -f Dockerfile.web .
 docker push steer/operator:latest
 docker push steer/web:latest
 
-# 安装 Helm Chart
+# 从本地 Git 仓库安装
 helm install steer ./charts/steer \
+  --namespace steer-system \
+  --create-namespace
+
+# 从远程 Git 仓库安装(OCI)
+helm install steer oci://ghcr.io/yourusername/steer/charts/steer \
   --namespace steer-system \
   --create-namespace
 
