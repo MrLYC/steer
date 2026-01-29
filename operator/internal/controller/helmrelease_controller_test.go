@@ -28,6 +28,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	steerv1alpha1 "github.com/MrLYC/steer/operator/api/v1alpha1"
+	"github.com/MrLYC/steer/operator/pkg/helm"
 )
 
 var _ = Describe("HelmRelease Controller", func() {
@@ -51,7 +52,20 @@ var _ = Describe("HelmRelease Controller", func() {
 						Name:      resourceName,
 						Namespace: "default",
 					},
-					// TODO(user): Specify other spec details if needed.
+					Spec: steerv1alpha1.HelmReleaseSpec{
+						Chart: steerv1alpha1.ChartSpec{
+							Source: steerv1alpha1.ChartSourceRepository,
+							Repository: &steerv1alpha1.RepositoryChartSpec{
+								URL:  "https://example.invalid/charts",
+								Name: "example",
+							},
+						},
+						Deployment: steerv1alpha1.DeploymentSpec{
+							Namespace:       "default",
+							CreateNamespace: false,
+							Timeout:         metav1.Duration{Duration: 0},
+						},
+					},
 				}
 				Expect(k8sClient.Create(ctx, resource)).To(Succeed())
 			}
@@ -71,14 +85,24 @@ var _ = Describe("HelmRelease Controller", func() {
 			controllerReconciler := &HelmReleaseReconciler{
 				Client: k8sClient,
 				Scheme: k8sClient.Scheme(),
+				Helm: &helm.FakeClient{
+					InstallOrUpgradeFunc: func(ctx context.Context, req helm.InstallOrUpgradeRequest) (helm.ReleaseInfo, error) {
+						return helm.ReleaseInfo{Name: req.ReleaseName, Namespace: req.Namespace, Version: 1, Status: "deployed"}, nil
+					},
+				},
 			}
 
 			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
 				NamespacedName: typeNamespacedName,
 			})
 			Expect(err).NotTo(HaveOccurred())
-			// TODO(user): Add more specific assertions depending on your controller's reconciliation logic.
-			// Example: If you expect a certain status condition after reconciliation, verify it here.
+
+			updated := &steerv1alpha1.HelmRelease{}
+			Expect(k8sClient.Get(ctx, typeNamespacedName, updated)).To(Succeed())
+			Expect(updated.Status.Phase).To(Equal(steerv1alpha1.HelmReleasePhaseInstalled))
+			Expect(updated.Status.DeployedAt).NotTo(BeNil())
+			Expect(updated.Status.HelmRelease).NotTo(BeNil())
+			Expect(updated.Status.HelmRelease.Name).To(Equal(resourceName))
 		})
 	})
 })

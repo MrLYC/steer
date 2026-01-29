@@ -19,18 +19,21 @@ package controller
 import (
 	"context"
 
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	steerv1alpha1 "github.com/MrLYC/steer/operator/api/v1alpha1"
+	"github.com/MrLYC/steer/operator/pkg/helm"
 )
 
 // HelmReleaseReconciler reconciles a HelmRelease object
 type HelmReleaseReconciler struct {
 	client.Client
 	Scheme *runtime.Scheme
+	Helm   helm.Client
 }
 
 //+kubebuilder:rbac:groups=steer.steer.io,resources=helmreleases,verbs=get;list;watch;create;update;patch;delete
@@ -47,9 +50,48 @@ type HelmReleaseReconciler struct {
 // For more details, check Reconcile and its Result here:
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.17.0/pkg/reconcile
 func (r *HelmReleaseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	_ = log.FromContext(ctx)
+	logger := log.FromContext(ctx)
 
-	// TODO(user): your logic here
+	var hr steerv1alpha1.HelmRelease
+	if err := r.Get(ctx, req.NamespacedName, &hr); err != nil {
+		return ctrl.Result{}, client.IgnoreNotFound(err)
+	}
+
+	if r.Helm == nil {
+		logger.Info("helm client not configured")
+		return ctrl.Result{}, nil
+	}
+
+	releaseName := hr.Name
+	reqInstall := helm.InstallOrUpgradeRequest{
+		ReleaseName:     releaseName,
+		Namespace:       hr.Spec.Deployment.Namespace,
+		Chart:           hr.Spec.Chart,
+		Values:          hr.Spec.Values,
+		CreateNamespace: hr.Spec.Deployment.CreateNamespace,
+		Timeout:         hr.Spec.Deployment.Timeout,
+	}
+
+	info, err := r.Helm.InstallOrUpgrade(ctx, reqInstall)
+	now := metav1.Now()
+	if err != nil {
+		hr.Status.Phase = steerv1alpha1.HelmReleasePhaseFailed
+		hr.Status.Message = err.Error()
+		_ = r.Status().Update(ctx, &hr)
+		return ctrl.Result{}, err
+	}
+
+	hr.Status.Phase = steerv1alpha1.HelmReleasePhaseInstalled
+	hr.Status.DeployedAt = &now
+	hr.Status.Message = ""
+	hr.Status.HelmRelease = &steerv1alpha1.HelmReleaseInfo{
+		Name:    info.Name,
+		Version: info.Version,
+		Status:  info.Status,
+	}
+	if err := r.Status().Update(ctx, &hr); err != nil {
+		return ctrl.Result{}, err
+	}
 
 	return ctrl.Result{}, nil
 }
