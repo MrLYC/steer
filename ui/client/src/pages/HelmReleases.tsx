@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Table, Button, Tag, Space, DialogPlugin, Dialog, Form, Input, MessagePlugin } from 'tdesign-react';
+import { Table, Button, Tag, Space, DialogPlugin, Dialog, Form, Input, Textarea, MessagePlugin } from 'tdesign-react';
 import { AddIcon, RefreshIcon, DeleteIcon } from 'tdesign-icons-react';
 import { helmReleaseApi, HelmRelease } from '../api/client';
 
@@ -45,6 +45,16 @@ const HelmReleases: React.FC = () => {
   const handleSubmit = async (context: any) => {
     if (context.validateResult === true) {
       const values = form.getFieldsValue(true);
+      let parsedValues = {};
+      try {
+        if (values.values) {
+          parsedValues = JSON.parse(values.values);
+        }
+      } catch (e) {
+        MessagePlugin.error('Invalid JSON in Values');
+        return;
+      }
+
       const newRelease: HelmRelease = {
         apiVersion: 'steer.io/v1alpha1',
         kind: 'HelmRelease',
@@ -58,6 +68,7 @@ const HelmReleases: React.FC = () => {
             repository: values.repository,
             version: values.version,
           },
+          values: parsedValues,
           deployment: {
             namespace: values.targetNamespace,
           },
@@ -154,6 +165,9 @@ const HelmReleases: React.FC = () => {
           </Form.FormItem>
           <Form.FormItem name="targetNamespace" label="Target NS" rules={[{ required: true }]}>
             <Input placeholder="Target deployment namespace" />
+          </Form.FormItem>
+          <Form.FormItem name="values" label="Values (JSON)">
+            <Textarea placeholder='{"key": "value"}' autosize={{ minRows: 3, maxRows: 10 }} />
           </Form.FormItem>
         </Form>
       </Dialog>
