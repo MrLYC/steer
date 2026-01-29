@@ -14,7 +14,18 @@ spec:
     singular: helmtestjob
   scope: Namespaced
   versions:
-  - name: v1alpha1
+  - additionalPrinterColumns:
+    - jsonPath: .status.phase
+      name: Phase
+      type: string
+    - jsonPath: .status.nextScheduleTime
+      name: Next
+      priority: 1
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
     schema:
       openAPIV3Schema:
         description: HelmTestJob is the Schema for the helmtestjobs API
@@ -39,13 +50,299 @@ spec:
           spec:
             description: HelmTestJobSpec defines the desired state of HelmTestJob
             properties:
-              foo:
-                description: Foo is an example field of HelmTestJob. Edit helmtestjob_types.go
-                  to remove/update
-                type: string
+              cleanup:
+                description: Cleanup can override HelmRelease cleanup settings.
+                properties:
+                  deleteImages:
+                    description: DeleteImages controls whether to delete images (if
+                      supported).
+                    type: boolean
+                  deleteNamespace:
+                    description: DeleteNamespace controls whether to delete the namespace.
+                    type: boolean
+                type: object
+              helmReleaseRef:
+                description: HelmReleaseRef points to an existing HelmRelease.
+                properties:
+                  name:
+                    type: string
+                  namespace:
+                    type: string
+                required:
+                - name
+                - namespace
+                type: object
+              hooks:
+                description: Hooks to run before/after test.
+                properties:
+                  postTest:
+                    description: PostTest hooks are executed after helm test.
+                    items:
+                      properties:
+                        env:
+                          description: Env injects environment variables for script/kubernetes
+                            hooks.
+                          items:
+                            properties:
+                              name:
+                                type: string
+                              value:
+                                description: Value is a literal value.
+                                type: string
+                              valueFrom:
+                                description: ValueFrom references a field.
+                                properties:
+                                  fieldPath:
+                                    description: |-
+                                      FieldPath references the HelmTestJob object.
+                                      Example: status.phase
+                                    type: string
+                                  helmReleaseRef:
+                                    description: HelmReleaseRef references the referenced
+                                      HelmRelease object.
+                                    properties:
+                                      fieldPath:
+                                        description: |-
+                                          FieldPath references the HelmRelease object.
+                                          Example: spec.deployment.namespace
+                                        type: string
+                                    required:
+                                    - fieldPath
+                                    type: object
+                                type: object
+                            required:
+                            - name
+                            type: object
+                          type: array
+                        kubernetes:
+                          description: Kubernetes is only meaningful for type=kubernetes.
+                          type: object
+                          x-kubernetes-embedded-resource: true
+                          x-kubernetes-preserve-unknown-fields: true
+                        name:
+                          type: string
+                        script:
+                          description: Script is only meaningful for type=script.
+                          type: string
+                        type:
+                          enum:
+                          - script
+                          - kubernetes
+                          type: string
+                      required:
+                      - name
+                      - type
+                      type: object
+                    type: array
+                  preTest:
+                    description: PreTest hooks are executed before helm test.
+                    items:
+                      properties:
+                        env:
+                          description: Env injects environment variables for script/kubernetes
+                            hooks.
+                          items:
+                            properties:
+                              name:
+                                type: string
+                              value:
+                                description: Value is a literal value.
+                                type: string
+                              valueFrom:
+                                description: ValueFrom references a field.
+                                properties:
+                                  fieldPath:
+                                    description: |-
+                                      FieldPath references the HelmTestJob object.
+                                      Example: status.phase
+                                    type: string
+                                  helmReleaseRef:
+                                    description: HelmReleaseRef references the referenced
+                                      HelmRelease object.
+                                    properties:
+                                      fieldPath:
+                                        description: |-
+                                          FieldPath references the HelmRelease object.
+                                          Example: spec.deployment.namespace
+                                        type: string
+                                    required:
+                                    - fieldPath
+                                    type: object
+                                type: object
+                            required:
+                            - name
+                            type: object
+                          type: array
+                        kubernetes:
+                          description: Kubernetes is only meaningful for type=kubernetes.
+                          type: object
+                          x-kubernetes-embedded-resource: true
+                          x-kubernetes-preserve-unknown-fields: true
+                        name:
+                          type: string
+                        script:
+                          description: Script is only meaningful for type=script.
+                          type: string
+                        type:
+                          enum:
+                          - script
+                          - kubernetes
+                          type: string
+                      required:
+                      - name
+                      - type
+                      type: object
+                    type: array
+                type: object
+              schedule:
+                description: Schedule defines once/cron execution.
+                properties:
+                  cron:
+                    description: Cron is only meaningful for type=cron.
+                    type: string
+                  delay:
+                    description: Delay is only meaningful for type=once.
+                    type: string
+                  timezone:
+                    default: Asia/Shanghai
+                    description: Timezone is used for cron schedules.
+                    type: string
+                  type:
+                    description: Type decides schedule behavior.
+                    enum:
+                    - once
+                    - cron
+                    type: string
+                required:
+                - type
+                type: object
+              test:
+                description: Test config for helm test.
+                properties:
+                  filter:
+                    description: Filter limits the executed tests.
+                    type: string
+                  logs:
+                    default: true
+                    description: Logs controls whether to show logs.
+                    type: boolean
+                  timeout:
+                    default: 10m
+                    description: Timeout is the helm test timeout.
+                    type: string
+                type: object
+            required:
+            - helmReleaseRef
+            - schedule
             type: object
           status:
             description: HelmTestJobStatus defines the observed state of HelmTestJob
+            properties:
+              completionTime:
+                format: date-time
+                type: string
+              hookResults:
+                properties:
+                  postTest:
+                    items:
+                      properties:
+                        message:
+                          type: string
+                        name:
+                          type: string
+                        phase:
+                          allOf:
+                          - enum:
+                            - Pending
+                            - Running
+                            - Succeeded
+                            - Failed
+                          - enum:
+                            - Pending
+                            - Running
+                            - Succeeded
+                            - Failed
+                          type: string
+                      required:
+                      - name
+                      - phase
+                      type: object
+                    type: array
+                  preTest:
+                    items:
+                      properties:
+                        message:
+                          type: string
+                        name:
+                          type: string
+                        phase:
+                          allOf:
+                          - enum:
+                            - Pending
+                            - Running
+                            - Succeeded
+                            - Failed
+                          - enum:
+                            - Pending
+                            - Running
+                            - Succeeded
+                            - Failed
+                          type: string
+                      required:
+                      - name
+                      - phase
+                      type: object
+                    type: array
+                type: object
+              message:
+                type: string
+              nextScheduleTime:
+                description: NextScheduleTime is only meaningful for cron schedules.
+                format: date-time
+                type: string
+              phase:
+                description: Phase indicates current state.
+                enum:
+                - Pending
+                - Running
+                - Succeeded
+                - Failed
+                type: string
+              startTime:
+                format: date-time
+                type: string
+              testResults:
+                items:
+                  properties:
+                    completedAt:
+                      format: date-time
+                      type: string
+                    logs:
+                      type: string
+                    name:
+                      type: string
+                    phase:
+                      allOf:
+                      - enum:
+                        - Pending
+                        - Running
+                        - Succeeded
+                        - Failed
+                      - enum:
+                        - Pending
+                        - Running
+                        - Succeeded
+                        - Failed
+                      description: Phase is per-test result.
+                      type: string
+                    startedAt:
+                      format: date-time
+                      type: string
+                  required:
+                  - name
+                  - phase
+                  type: object
+                type: array
             type: object
         type: object
     served: true
