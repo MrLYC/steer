@@ -247,6 +247,11 @@ type HelmTestJobStatus struct {
 	// NextScheduleTime is only meaningful for cron schedules.
 	// +optional
 	NextScheduleTime *metav1.Time `json:"nextScheduleTime,omitempty"`
+
+	// LastScheduleTime records the last scheduled time that triggered a run.
+	// It is used to avoid re-running cron schedules on every reconcile.
+	// +optional
+	LastScheduleTime *metav1.Time `json:"lastScheduleTime,omitempty"`
 }
 
 //+kubebuilder:object:root=true

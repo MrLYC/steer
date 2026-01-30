@@ -299,6 +299,12 @@ spec:
                       type: object
                     type: array
                 type: object
+              lastScheduleTime:
+                description: |-
+                  LastScheduleTime records the last scheduled time that triggered a run.
+                  It is used to avoid re-running cron schedules on every reconcile.
+                format: date-time
+                type: string
               message:
                 type: string
               nextScheduleTime:
