@@ -58,6 +58,11 @@ type ScheduleSpec struct {
 }
 
 type TestSpec struct {
+	// Image is the container image used to run helm test.
+	// If empty, the controller will fall back to env var STEER_JOB_IMAGE.
+	// +optional
+	Image string `json:"image,omitempty"`
+
 	// Timeout is the helm test timeout.
 	// +kubebuilder:default="10m"
 	// +optional

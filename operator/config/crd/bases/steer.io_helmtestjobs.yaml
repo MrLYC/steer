@@ -222,6 +222,11 @@ spec:
                   filter:
                     description: Filter limits the executed tests.
                     type: string
+                  image:
+                    description: |-
+                      Image is the container image used to run helm test.
+                      If empty, the controller will fall back to env var STEER_JOB_IMAGE.
+                    type: string
                   logs:
                     default: true
                     description: Logs controls whether to show logs.
