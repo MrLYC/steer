@@ -246,6 +246,19 @@ spec:
               completionTime:
                 format: date-time
                 type: string
+              currentIndex:
+                description: |-
+                  CurrentIndex is the index of the current hook being executed within the stage.
+                  Only meaningful for PreTest/PostTest.
+                format: int32
+                type: integer
+              currentStage:
+                description: CurrentStage indicates which stage is being executed.
+                enum:
+                - PreTest
+                - Test
+                - PostTest
+                type: string
               hookResults:
                 properties:
                   postTest:

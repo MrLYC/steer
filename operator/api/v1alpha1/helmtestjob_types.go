@@ -224,6 +224,15 @@ type HookResults struct {
 	PostTest []HookResult `json:"postTest,omitempty"`
 }
 
+// +kubebuilder:validation:Enum=PreTest;Test;PostTest
+type HelmTestJobStage string
+
+const (
+	HelmTestJobStagePreTest  HelmTestJobStage = "PreTest"
+	HelmTestJobStageTest     HelmTestJobStage = "Test"
+	HelmTestJobStagePostTest HelmTestJobStage = "PostTest"
+)
+
 // HelmTestJobStatus defines the observed state of HelmTestJob
 type HelmTestJobStatus struct {
 	// Phase indicates current state.
@@ -252,6 +261,15 @@ type HelmTestJobStatus struct {
 	// It is used to avoid re-running cron schedules on every reconcile.
 	// +optional
 	LastScheduleTime *metav1.Time `json:"lastScheduleTime,omitempty"`
+
+	// CurrentStage indicates which stage is being executed.
+	// +optional
+	CurrentStage HelmTestJobStage `json:"currentStage,omitempty"`
+
+	// CurrentIndex is the index of the current hook being executed within the stage.
+	// Only meaningful for PreTest/PostTest.
+	// +optional
+	CurrentIndex int32 `json:"currentIndex,omitempty"`
 }
 
 //+kubebuilder:object:root=true
