@@ -2,6 +2,7 @@
 FROM node:20-alpine AS frontend-builder
 WORKDIR /app/ui
 COPY ui/package.json ui/pnpm-lock.yaml ./
+COPY ui/patches ./patches
 RUN npm install -g pnpm && pnpm install
 COPY ui/ .
 RUN pnpm build
