@@ -9,8 +9,9 @@ on:
 
 env:
   REGISTRY: docker.io
-  IMAGE_NAME: ${{ github.repository }}
-  OPERATOR_IMAGE_NAME: ${{ github.repository }}-operator
+  # Docker Hub repository names must be lowercase.
+  IMAGE_NAME: mrlyc/steer
+  OPERATOR_IMAGE_NAME: mrlyc/steer-operator
 
 jobs:
   build-and-push:
