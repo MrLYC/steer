@@ -22,6 +22,7 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	batchv1 "k8s.io/api/batch/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -65,6 +66,7 @@ var _ = Describe("HelmTestJob Controller", func() {
 							Timezone: "Asia/Shanghai",
 						},
 						Test: steerv1alpha1.TestSpec{
+							Image:   "busybox:1.36",
 							Timeout: metav1.Duration{Duration: 0},
 							Logs:    nil,
 							Filter:  "",
@@ -83,6 +85,10 @@ var _ = Describe("HelmTestJob Controller", func() {
 
 			By("Cleanup the specific resource instance HelmTestJob")
 			Expect(k8sClient.Delete(ctx, resource)).To(Succeed())
+
+			// Best-effort cleanup for Jobs created by the controller.
+			j := &batchv1.Job{ObjectMeta: metav1.ObjectMeta{Name: jobNameForTest(resourceName, "once"), Namespace: "default"}}
+			_ = k8sClient.Delete(ctx, j)
 		})
 		It("should successfully reconcile the once schedule resource", func() {
 			By("Reconciling the created resource")
@@ -98,8 +104,13 @@ var _ = Describe("HelmTestJob Controller", func() {
 
 			updated := &steerv1alpha1.HelmTestJob{}
 			Expect(k8sClient.Get(ctx, typeNamespacedName, updated)).To(Succeed())
-			Expect(updated.Status.Phase).To(Equal(steerv1alpha1.HelmTestJobPhasePending))
+			// With the placeholder test job command, the Job can complete quickly in envtest.
+			Expect(updated.Status.Phase).To(BeElementOf(steerv1alpha1.HelmTestJobPhaseRunning, steerv1alpha1.HelmTestJobPhaseSucceeded))
 			Expect(updated.Status.NextScheduleTime).NotTo(BeNil())
+
+			By("Ensuring the test Job was created")
+			createdJob := &batchv1.Job{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: jobNameForTest(resourceName, "once"), Namespace: "default"}, createdJob)).To(Succeed())
 		})
 
 		It("should successfully reconcile the cron schedule resource", func() {
