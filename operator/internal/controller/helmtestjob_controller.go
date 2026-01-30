@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/robfig/cron/v3"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -87,8 +88,6 @@ func computeNextScheduleTime(now time.Time, spec steerv1alpha1.ScheduleSpec) (ct
 		next := now.Add(spec.Delay.Duration)
 		return ctrl.Result{RequeueAfter: spec.Delay.Duration}, next, nil
 	case steerv1alpha1.ScheduleTypeCron:
-		// Block C note: we intentionally avoid bringing in a cron parsing dependency yet.
-		// For now we support a minimal, non-empty cron string and schedule a short requeue.
 		if spec.Cron == "" {
 			return ctrl.Result{}, time.Time{}, fmt.Errorf("schedule.cron is required when type=cron")
 		}
@@ -96,8 +95,21 @@ func computeNextScheduleTime(now time.Time, spec steerv1alpha1.ScheduleSpec) (ct
 		if err != nil {
 			return ctrl.Result{}, time.Time{}, fmt.Errorf("invalid schedule.timezone %q: %w", spec.Timezone, err)
 		}
-		next := now.In(loc).Add(time.Minute)
-		return ctrl.Result{RequeueAfter: time.Minute}, next, nil
+
+		// Standard 5-field cron with descriptors.
+		parser := cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow | cron.Descriptor)
+		schedule, err := parser.Parse(spec.Cron)
+		if err != nil {
+			return ctrl.Result{}, time.Time{}, fmt.Errorf("invalid schedule.cron %q: %w", spec.Cron, err)
+		}
+
+		nowInLoc := now.In(loc)
+		next := schedule.Next(nowInLoc)
+		requeueAfter := next.Sub(nowInLoc)
+		if requeueAfter < 0 {
+			requeueAfter = 0
+		}
+		return ctrl.Result{RequeueAfter: requeueAfter}, next, nil
 	default:
 		return ctrl.Result{}, time.Time{}, fmt.Errorf("unsupported schedule.type %q", spec.Type)
 	}

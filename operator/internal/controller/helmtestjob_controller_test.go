@@ -122,7 +122,9 @@ var _ = Describe("HelmTestJob Controller", func() {
 			updated := &steerv1alpha1.HelmTestJob{}
 			Expect(k8sClient.Get(ctx, typeNamespacedName, updated)).To(Succeed())
 			Expect(updated.Status.NextScheduleTime).NotTo(BeNil())
-			Expect(updated.Status.NextScheduleTime.Time.After(time.Now().Add(-1 * time.Minute))).To(BeTrue())
+			// Cron should schedule the next minute boundary (or later) in the specified timezone.
+			// Allow small clock skew to avoid flakiness.
+			Expect(updated.Status.NextScheduleTime.Time.After(time.Now().Add(-5 * time.Second))).To(BeTrue())
 		})
 	})
 })
