@@ -1,7 +1,8 @@
 import axios from 'axios';
 
 // API 基础 URL
-const API_BASE_URL = 'http://localhost:8080/api/v1';
+// In-cluster / same-origin (served by operator's embedded web server)
+const API_BASE_URL = '/api/v1';
 
 // 创建 axios 实例
 const apiClient = axios.create({

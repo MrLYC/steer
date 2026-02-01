@@ -2,7 +2,13 @@
 // TODO(user): Add simple overview of use/purpose
 
 ## Description
-// TODO(user): An in-depth paragraph about your project and overview of use
+
+Steer operator 支持一个 **测试工具模式**：在同一个 manager 进程中同时运行 Controller Manager + Web UI/API。
+
+- 通过 `--web` 开启内置 Web Server
+- 通过 `--web-static-dir` 指定 UI 静态文件目录（容器内默认 `/static`）
+
+该模式用于快速验证/演示，不建议用于生产。
 
 ## Getting Started
 
@@ -34,6 +40,21 @@ make install
 ```sh
 make deploy IMG=<some-registry>/steer-operator:tag
 ```
+
+#### Embedded Web (testing only)
+
+默认部署清单会以 `--web=:8082` 启动 Web Server，并在 `operator/config/manager/service.yaml` 提供 `steer-web` Service（kustomize 默认会加 namePrefix，最终为 `steer-operator-steer-web`）。
+
+本地访问（port-forward）：
+
+```sh
+kubectl -n steer-operator-system port-forward svc/steer-operator-steer-web 8080:80
+```
+
+访问：
+
+- UI: http://localhost:8080/
+- API: http://localhost:8080/api/v1
 
 > **NOTE**: If you encounter RBAC errors, you may need to grant yourself cluster-admin 
 privileges or be logged in as admin.
@@ -111,4 +132,3 @@ distributed under the License is distributed on an "AS IS" BASIS,
 WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
-

@@ -17,7 +17,7 @@ rules:
   - update
   - watch
 - apiGroups:
-  - steer.steer.io
+  - steer.io
   resources:
   - helmreleases
   verbs:
@@ -29,13 +29,13 @@ rules:
   - update
   - watch
 - apiGroups:
-  - steer.steer.io
+  - steer.io
   resources:
   - helmreleases/finalizers
   verbs:
   - update
 - apiGroups:
-  - steer.steer.io
+  - steer.io
   resources:
   - helmreleases/status
   verbs:
@@ -43,7 +43,7 @@ rules:
   - patch
   - update
 - apiGroups:
-  - steer.steer.io
+  - steer.io
   resources:
   - helmtestjobs
   verbs:
@@ -55,13 +55,13 @@ rules:
   - update
   - watch
 - apiGroups:
-  - steer.steer.io
+  - steer.io
   resources:
   - helmtestjobs/finalizers
   verbs:
   - update
 - apiGroups:
-  - steer.steer.io
+  - steer.io
   resources:
   - helmtestjobs/status
   verbs:

@@ -70,6 +70,8 @@ spec:
         - /manager
         args:
         - --leader-elect
+        - --web=:8082
+        - --web-static-dir=/static
         image: controller:latest
         name: manager
         securityContext:
@@ -98,5 +100,9 @@ spec:
           requests:
             cpu: 10m
             memory: 64Mi
+        ports:
+        - containerPort: 8082
+          name: web
+          protocol: TCP
       serviceAccountName: controller-manager
       terminationGracePeriodSeconds: 10

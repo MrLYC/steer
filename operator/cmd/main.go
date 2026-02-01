@@ -36,6 +36,7 @@ import (
 
 	steerv1alpha1 "github.com/MrLYC/steer/operator/api/v1alpha1"
 	"github.com/MrLYC/steer/operator/internal/controller"
+	"github.com/MrLYC/steer/operator/internal/web"
 	//+kubebuilder:scaffold:imports
 )
 
@@ -57,8 +58,12 @@ func main() {
 	var probeAddr string
 	var secureMetrics bool
 	var enableHTTP2 bool
+	var webAddr string
+	var webStaticDir string
 	flag.StringVar(&metricsAddr, "metrics-bind-address", ":8080", "The address the metric endpoint binds to.")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
+	flag.StringVar(&webAddr, "web", "", "If set, start the embedded test web server on the given address (e.g. :8082)")
+	flag.StringVar(&webStaticDir, "web-static-dir", "/static", "Static UI directory for the embedded web server")
 	flag.BoolVar(&enableLeaderElection, "leader-elect", false,
 		"Enable leader election for controller manager. "+
 			"Enabling this will ensure there is only one active controller manager.")
@@ -120,6 +125,17 @@ func main() {
 	if err != nil {
 		setupLog.Error(err, "unable to start manager")
 		os.Exit(1)
+	}
+
+	if webAddr != "" {
+		setupLog.Info("starting embedded test web server", "addr", webAddr, "staticDir", webStaticDir)
+		if err := mgr.Add(web.NewServer(webAddr, webStaticDir, mgr.GetClient())); err != nil {
+			setupLog.Error(err, "unable to add web server")
+			os.Exit(1)
+		}
+		setupLog.Info("NOTE: embedded web server is for testing only; do not use this mode for production")
+	} else {
+		setupLog.Info("web server disabled (set --web to enable)")
 	}
 
 	if err = (&controller.HelmReleaseReconciler{
