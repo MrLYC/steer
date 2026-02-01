@@ -1,0 +1,25 @@
+{{- if .Values.metrics.service.enabled -}}
+{{- $bind := include "steer-operator.metricsBindAddress" . -}}
+{{- if or (hasPrefix "127.0.0.1:" $bind) (hasPrefix "localhost:" $bind) -}}
+{{- fail "metrics.service.enabled=true requires metrics.bindAddress to be non-loopback (set metrics.listenOnAllInterfaces=true or metrics.bindAddress=0.0.0.0:<port>)" -}}
+{{- end -}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "steer-operator.fullname" . }}-metrics
+  labels:
+    {{- include "steer-operator.labels" . | nindent 4 }}
+  {{- with .Values.metrics.service.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ .Values.metrics.service.type }}
+  ports:
+    - port: {{ include "steer-operator.metricsServicePort" . }}
+      targetPort: metrics
+      protocol: TCP
+      name: metrics
+  selector:
+    {{- include "steer-operator.selectorLabels" . | nindent 4 }}
+{{- end }}

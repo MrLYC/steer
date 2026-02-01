@@ -12,7 +12,7 @@ metadata:
   name: helmrelease-viewer-role
 rules:
 - apiGroups:
-  - steer.steer.io
+  - steer.io
   resources:
   - helmreleases
   verbs:
@@ -20,7 +20,7 @@ rules:
   - list
   - watch
 - apiGroups:
-  - steer.steer.io
+  - steer.io
   resources:
   - helmreleases/status
   verbs:

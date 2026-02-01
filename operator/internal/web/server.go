@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 	"time"
@@ -81,17 +82,18 @@ func (s *Server) Start(ctx context.Context) error {
 }
 
 func spaFileServer(staticDir string) http.Handler {
-	fs := http.FileServer(http.Dir(staticDir))
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Vite assets / direct files: serve if exists.
-		cleanPath := filepath.Clean(r.URL.Path)
-		if strings.HasPrefix(cleanPath, "..") {
+		// Serve Vite assets (e.g. /assets/*) and other direct files from staticDir.
+		// Everything else (non-API) falls back to index.html for SPA routing.
+		cleanPath := path.Clean(r.URL.Path)
+		if !strings.HasPrefix(cleanPath, "/") || strings.Contains(cleanPath, "..") {
 			writeError(w, http.StatusBadRequest, "invalid path")
 			return
 		}
-		candidate := filepath.Join(staticDir, cleanPath)
+		rel := strings.TrimPrefix(cleanPath, "/")
+		candidate := filepath.Join(staticDir, rel)
 		if fi, err := os.Stat(candidate); err == nil && !fi.IsDir() {
-			fs.ServeHTTP(w, r)
+			http.ServeFile(w, r, candidate)
 			return
 		}
 

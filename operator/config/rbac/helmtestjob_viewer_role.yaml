@@ -12,7 +12,7 @@ metadata:
   name: helmtestjob-viewer-role
 rules:
 - apiGroups:
-  - steer.steer.io
+  - steer.io
   resources:
   - helmtestjobs
   verbs:
@@ -20,7 +20,7 @@ rules:
   - list
   - watch
 - apiGroups:
-  - steer.steer.io
+  - steer.io
   resources:
   - helmtestjobs/status
   verbs:

@@ -37,6 +37,7 @@ import (
 	steerv1alpha1 "github.com/MrLYC/steer/operator/api/v1alpha1"
 	"github.com/MrLYC/steer/operator/internal/controller"
 	"github.com/MrLYC/steer/operator/internal/web"
+	"github.com/MrLYC/steer/operator/pkg/helm"
 	//+kubebuilder:scaffold:imports
 )
 
@@ -138,9 +139,12 @@ func main() {
 		setupLog.Info("web server disabled (set --web to enable)")
 	}
 
+	helmClient := helm.NewCLIClient()
+
 	if err = (&controller.HelmReleaseReconciler{
 		Client: mgr.GetClient(),
 		Scheme: mgr.GetScheme(),
+		Helm:   helmClient,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "HelmRelease")
 		os.Exit(1)
@@ -148,6 +152,7 @@ func main() {
 	if err = (&controller.HelmTestJobReconciler{
 		Client: mgr.GetClient(),
 		Scheme: mgr.GetScheme(),
+		Helm:   helmClient,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "HelmTestJob")
 		os.Exit(1)

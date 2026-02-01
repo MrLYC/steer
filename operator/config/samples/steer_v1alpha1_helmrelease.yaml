@@ -1,4 +1,4 @@
-apiVersion: steer.steer.io/v1alpha1
+apiVersion: steer.io/v1alpha1
 kind: HelmRelease
 metadata:
   labels:

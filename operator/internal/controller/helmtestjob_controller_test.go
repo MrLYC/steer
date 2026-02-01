@@ -22,7 +22,6 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	batchv1 "k8s.io/api/batch/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -30,6 +29,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	steerv1alpha1 "github.com/MrLYC/steer/operator/api/v1alpha1"
+	"github.com/MrLYC/steer/operator/pkg/helm"
 )
 
 var _ = Describe("HelmTestJob Controller", func() {
@@ -48,6 +48,38 @@ var _ = Describe("HelmTestJob Controller", func() {
 			By("creating the custom resource for the Kind HelmTestJob")
 			err := k8sClient.Get(ctx, typeNamespacedName, helmtestjob)
 			if err != nil && errors.IsNotFound(err) {
+				// Ensure the referenced HelmRelease exists.
+				hr := &steerv1alpha1.HelmRelease{}
+				hrKey := types.NamespacedName{Name: "example-release", Namespace: "default"}
+				hrErr := k8sClient.Get(ctx, hrKey, hr)
+				if hrErr != nil && errors.IsNotFound(hrErr) {
+					createHR := &steerv1alpha1.HelmRelease{
+						ObjectMeta: metav1.ObjectMeta{
+							Name:      "example-release",
+							Namespace: "default",
+						},
+						Spec: steerv1alpha1.HelmReleaseSpec{
+							Chart: steerv1alpha1.ChartSpec{
+								Source: steerv1alpha1.ChartSourceRepository,
+								Repository: &steerv1alpha1.RepositoryChartSpec{
+									Name:    "examples",
+									URL:     "https://helm.github.io/examples",
+									Version: "0.1.0",
+								},
+							},
+							Deployment: steerv1alpha1.DeploymentSpec{
+								Namespace:       "default",
+								CreateNamespace: false,
+								Timeout:         metav1.Duration{Duration: 0},
+							},
+							Values: steerv1alpha1.ValuesSpec{Inline: ""},
+						},
+					}
+					Expect(k8sClient.Create(ctx, createHR)).To(Succeed())
+				} else {
+					Expect(hrErr).NotTo(HaveOccurred())
+				}
+
 				resource := &steerv1alpha1.HelmTestJob{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      resourceName,
@@ -86,15 +118,20 @@ var _ = Describe("HelmTestJob Controller", func() {
 			By("Cleanup the specific resource instance HelmTestJob")
 			Expect(k8sClient.Delete(ctx, resource)).To(Succeed())
 
-			// Best-effort cleanup for Jobs created by the controller.
-			j := &batchv1.Job{ObjectMeta: metav1.ObjectMeta{Name: jobNameForTest(resourceName, "once"), Namespace: "default"}}
-			_ = k8sClient.Delete(ctx, j)
+			By("Cleanup the referenced HelmRelease")
+			hr := &steerv1alpha1.HelmRelease{}
+			hrKey := types.NamespacedName{Name: "example-release", Namespace: "default"}
+			_ = k8sClient.Get(ctx, hrKey, hr)
+			_ = k8sClient.Delete(ctx, hr)
 		})
 		It("should successfully reconcile the once schedule resource", func() {
 			By("Reconciling the created resource")
 			controllerReconciler := &HelmTestJobReconciler{
 				Client: k8sClient,
 				Scheme: k8sClient.Scheme(),
+				Helm: &helm.FakeClient{TestFunc: func(ctx context.Context, req helm.TestRequest) (helm.TestResult, error) {
+					return helm.TestResult{Succeeded: true, Logs: []string{"ok"}}, nil
+				}},
 			}
 
 			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
@@ -104,13 +141,10 @@ var _ = Describe("HelmTestJob Controller", func() {
 
 			updated := &steerv1alpha1.HelmTestJob{}
 			Expect(k8sClient.Get(ctx, typeNamespacedName, updated)).To(Succeed())
-			// With the placeholder test job command, the Job can complete quickly in envtest.
-			Expect(updated.Status.Phase).To(BeElementOf(steerv1alpha1.HelmTestJobPhaseRunning, steerv1alpha1.HelmTestJobPhaseSucceeded))
+			Expect(updated.Status.Phase).To(Equal(steerv1alpha1.HelmTestJobPhaseSucceeded))
 			Expect(updated.Status.NextScheduleTime).NotTo(BeNil())
-
-			By("Ensuring the test Job was created")
-			createdJob := &batchv1.Job{}
-			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: jobNameForTest(resourceName, "once"), Namespace: "default"}, createdJob)).To(Succeed())
+			Expect(updated.Status.TestResults).To(HaveLen(1))
+			Expect(updated.Status.TestResults[0].Phase).To(Equal(steerv1alpha1.HelmTestJobPhaseSucceeded))
 		})
 
 		It("should successfully reconcile the cron schedule resource", func() {

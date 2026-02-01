@@ -56,6 +56,33 @@ kubectl -n steer-operator-system port-forward svc/steer-operator-steer-web 8080:
 - UI: http://localhost:8080/
 - API: http://localhost:8080/api/v1
 
+## Helm 安装（推荐本地/演示）
+
+仓库提供 Helm chart：`charts/steer-operator`，用于部署 operator/manager（controller-manager）。
+
+```sh
+helm upgrade --install steer-operator ../../charts/steer-operator \
+  -n steer-operator-system --create-namespace \
+  --set image.repository=<your-registry>/steer-operator \
+  --set image.tag=<tag>
+```
+
+### Metrics（不使用 kube-rbac-proxy）
+
+`charts/steer-operator` **不包含 kube-rbac-proxy**。metrics 由 manager 直接提供：
+
+- 默认只监听 `127.0.0.1:8080`（集群内不可直接访问，最安全）
+- 如需在集群内暴露（请自行配合 NetworkPolicy / ServiceMonitor 等）：
+
+```sh
+helm upgrade --install steer-operator ../../charts/steer-operator \
+  -n steer-operator-system --create-namespace \
+  --set image.repository=<your-registry>/steer-operator \
+  --set image.tag=<tag> \
+  --set metrics.listenOnAllInterfaces=true \
+  --set metrics.service.enabled=true
+```
+
 > **NOTE**: If you encounter RBAC errors, you may need to grant yourself cluster-admin 
 privileges or be logged in as admin.
 
@@ -109,6 +136,27 @@ Users can just run kubectl apply -f <URL for YAML BUNDLE> to install the project
 ```sh
 kubectl apply -f https://raw.githubusercontent.com/<org>/steer-operator/<tag or branch>/dist/install.yaml
 ```
+
+## UI 页面配置（Embedded Web）
+
+### Releases 页面（创建 HelmRelease）
+
+只需要一个 Namespace：它会同时用于 `metadata.namespace` 和 `spec.deployment.namespace`。
+
+推荐先用官方示例仓库的 chart 验证 UI + API 是否打通：
+
+- Chart Name: `hello-world`
+- Repository URL: `https://helm.github.io/examples`
+- Version: `0.1.0`
+
+### Test Jobs 页面（创建 HelmTestJob）
+
+创建后选择刚才的 Release，并用 `once + delay` 触发一次运行。
+
+> NOTE：当前 operator 会在自身进程内直接执行 `helm test <release> -n <ns>`（方案 A）。
+>
+> - **不配置 hooks** 时：不需要 `spec.test.image` / `STEER_JOB_IMAGE`。
+> - **配置 hooks（script）** 时：hooks 仍通过 Kubernetes Job 执行，因此需要提供 `spec.test.image` 或设置环境变量 `STEER_JOB_IMAGE`。
 
 ## Contributing
 // TODO(user): Add detailed information on how you would like others to contribute to this project

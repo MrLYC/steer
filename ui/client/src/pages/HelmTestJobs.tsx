@@ -82,9 +82,6 @@ const HelmTestJobs: React.FC = () => {
             logs: true,
           },
         },
-        status: {
-          phase: 'Pending',
-        },
       };
 
       try {
@@ -127,10 +124,11 @@ const HelmTestJobs: React.FC = () => {
       colKey: 'status.phase', 
       title: 'Status',
       cell: ({ row }: { row: HelmTestJob }) => {
-        const theme = row.status.phase === 'Succeeded' ? 'success' : 
-                      row.status.phase === 'Failed' ? 'danger' : 
-                      row.status.phase === 'Running' ? 'warning' : 'primary';
-        return <Tag theme={theme}>{row.status.phase}</Tag>;
+        const phase = row.status?.phase || 'Unknown';
+        const theme = phase === 'Succeeded' ? 'success' : 
+                      phase === 'Failed' ? 'danger' : 
+                      phase === 'Running' ? 'warning' : 'primary';
+        return <Tag theme={theme}>{phase}</Tag>;
       }
     },
     {
@@ -187,7 +185,7 @@ const HelmTestJobs: React.FC = () => {
           </Form.FormItem>
           <Form.FormItem name="release" label="Target Release" rules={[{ required: true }]}>
             <Select placeholder="Select a release">
-              {releases.map(r => (
+              {releases.map((r: HelmRelease) => (
                 <Select.Option 
                   key={`${r.metadata.namespace}/${r.metadata.name}`} 
                   value={`${r.metadata.namespace}/${r.metadata.name}`} 
@@ -229,19 +227,19 @@ const HelmTestJobs: React.FC = () => {
           <div>
             <div style={{ marginBottom: 16 }}>
               <strong>Status: </strong>
-              <Tag theme={currentJob.status.phase === 'Succeeded' ? 'success' : 'danger'}>
-                {currentJob.status.phase}
+              <Tag theme={(currentJob.status?.phase || '') === 'Succeeded' ? 'success' : 'danger'}>
+                {currentJob.status?.phase || 'Unknown'}
               </Tag>
             </div>
             
-            {currentJob.status.message && (
+            {currentJob.status?.message && (
               <div style={{ marginBottom: 16, padding: 12, background: 'var(--td-bg-color-secondary)', borderRadius: 4 }}>
                 {currentJob.status.message}
               </div>
             )}
 
             <h3>Test Results</h3>
-            {currentJob.status.testResults?.map((result, index) => (
+            {currentJob.status?.testResults?.map((result, index) => (
               <div key={index} style={{ marginBottom: 12, padding: 12, border: '1px solid var(--td-border-level-1-color)', borderRadius: 4 }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
                   <strong>{result.name}</strong>
@@ -255,7 +253,7 @@ const HelmTestJobs: React.FC = () => {
             ))}
 
             <h3>Hook Results</h3>
-            {currentJob.status.hookResults?.map((result, index) => (
+            {currentJob.status?.hookResults?.map((result, index) => (
               <div key={index} style={{ marginBottom: 12, padding: 12, border: '1px solid var(--td-border-level-1-color)', borderRadius: 4 }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
                   <strong>{result.name}</strong>

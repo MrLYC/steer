@@ -3,6 +3,28 @@ import { Table, Button, Tag, Space, DialogPlugin, Dialog, Form, Input, Textarea,
 import { AddIcon, RefreshIcon, DeleteIcon } from 'tdesign-icons-react';
 import { helmReleaseApi, HelmRelease } from '../api/client';
 
+type ErrorWithResponse = {
+  message?: string;
+  response?: {
+    data?: unknown;
+    status?: number;
+  };
+};
+
+function getErrorMessage(error: unknown, fallback: string) {
+  if (typeof error === 'object' && error !== null) {
+    const e = error as ErrorWithResponse;
+    const data = e.response?.data;
+    if (typeof data === 'string' && data.trim()) return data;
+    if (typeof data === 'object' && data !== null && 'error' in data) {
+      const errMsg = (data as { error?: unknown }).error;
+      if (typeof errMsg === 'string' && errMsg.trim()) return errMsg;
+    }
+    if (typeof e.message === 'string' && e.message.trim()) return e.message;
+  }
+  return fallback;
+}
+
 const HelmReleases: React.FC = () => {
   const [releases, setReleases] = useState<HelmRelease[]>([]);
   const [loading, setLoading] = useState(true);
@@ -45,36 +67,32 @@ const HelmReleases: React.FC = () => {
   const handleSubmit = async (context: any) => {
     if (context.validateResult === true) {
       const values = form.getFieldsValue(true);
-      let parsedValues = {};
-      try {
-        if (values.values) {
-          parsedValues = JSON.parse(values.values);
-        }
-      } catch (e) {
-        MessagePlugin.error('Invalid JSON in Values');
-        return;
-      }
+      const namespace = values.namespace;
+      const valuesInline = typeof values.values === 'string' ? values.values : '';
 
       const newRelease: HelmRelease = {
         apiVersion: 'steer.io/v1alpha1',
         kind: 'HelmRelease',
         metadata: {
           name: values.name,
-          namespace: values.namespace,
+          namespace,
         },
         spec: {
           chart: {
-            name: values.chartName,
-            repository: values.repository,
-            version: values.version,
+            source: 'repository',
+            repository: {
+              name: values.chartName,
+              url: values.repository,
+              version: values.version,
+            },
           },
-          values: parsedValues,
+          values: {
+            inline: valuesInline,
+          },
           deployment: {
-            namespace: values.targetNamespace,
+            // Use the same namespace for CR + deployment namespace.
+            namespace,
           },
-        },
-        status: {
-          phase: 'Pending',
         },
       };
 
@@ -85,7 +103,7 @@ const HelmReleases: React.FC = () => {
         form.reset();
         loadReleases();
       } catch (error) {
-        MessagePlugin.error('Failed to create release');
+        MessagePlugin.error(getErrorMessage(error, 'Failed to create release'));
       }
     }
   };
@@ -96,22 +114,28 @@ const HelmReleases: React.FC = () => {
     { 
       colKey: 'spec.chart.name', 
       title: 'Chart',
-      cell: ({ row }: { row: HelmRelease }) => `${row.spec.chart.name} (${row.spec.chart.version || 'latest'})`
+      cell: ({ row }: { row: HelmRelease }) => {
+        const repo = row.spec.chart.repository;
+        const name = repo?.name || '-';
+        const ver = repo?.version || 'latest';
+        return `${name} (${ver})`;
+      }
     },
     { 
       colKey: 'status.phase', 
       title: 'Status',
       cell: ({ row }: { row: HelmRelease }) => {
-        const theme = row.status.phase === 'Installed' ? 'success' : 
-                      row.status.phase === 'Failed' ? 'danger' : 
-                      row.status.phase === 'Installing' ? 'warning' : 'primary';
-        return <Tag theme={theme}>{row.status.phase}</Tag>;
+        const phase = row.status?.phase || 'Unknown';
+        const theme = phase === 'Installed' ? 'success' : 
+                      phase === 'Failed' ? 'danger' : 
+                      phase === 'Installing' ? 'warning' : 'primary';
+        return <Tag theme={theme}>{phase}</Tag>;
       }
     },
     { 
       colKey: 'status.deployedAt', 
       title: 'Deployed At',
-      cell: ({ row }: { row: HelmRelease }) => row.status.deployedAt ? new Date(row.status.deployedAt).toLocaleString() : '-'
+      cell: ({ row }: { row: HelmRelease }) => row.status?.deployedAt ? new Date(row.status.deployedAt).toLocaleString() : '-'
     },
     {
       colKey: 'op',
@@ -155,19 +179,16 @@ const HelmReleases: React.FC = () => {
             <Input placeholder="Namespace" defaultValue="default" />
           </Form.FormItem>
           <Form.FormItem name="chartName" label="Chart Name" rules={[{ required: true }]}>
-            <Input placeholder="Chart name (e.g. nginx)" />
+            <Input placeholder="Chart name (e.g. hello-world)" defaultValue="hello-world" />
           </Form.FormItem>
           <Form.FormItem name="repository" label="Repository">
-            <Input placeholder="Chart repository URL" />
+            <Input placeholder="Chart repository URL" defaultValue="https://helm.github.io/examples" />
           </Form.FormItem>
           <Form.FormItem name="version" label="Version">
-            <Input placeholder="Chart version" />
+            <Input placeholder="Chart version" defaultValue="0.1.0" />
           </Form.FormItem>
-          <Form.FormItem name="targetNamespace" label="Target NS" rules={[{ required: true }]}>
-            <Input placeholder="Target deployment namespace" />
-          </Form.FormItem>
-          <Form.FormItem name="values" label="Values (JSON)">
-            <Textarea placeholder='{"key": "value"}' autosize={{ minRows: 3, maxRows: 10 }} />
+          <Form.FormItem name="values" label="Values (YAML/JSON)">
+            <Textarea placeholder={'replicaCount: 1\n'} autosize={{ minRows: 3, maxRows: 10 }} />
           </Form.FormItem>
         </Form>
       </Dialog>

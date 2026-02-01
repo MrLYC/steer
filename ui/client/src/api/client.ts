@@ -14,8 +14,8 @@ const apiClient = axios.create({
 
 // 响应拦截器处理错误
 apiClient.interceptors.response.use(
-  (response) => response,
-  (error) => {
+  (response: unknown) => response,
+  (error: unknown) => {
     console.error('API Error:', error);
     return Promise.reject(error);
   }
@@ -32,22 +32,34 @@ export interface HelmRelease {
   };
   spec: {
     chart: {
-      name: string;
-      version?: string;
-      repository?: string;
+      source?: 'repository' | 'git' | 'local';
+      repository?: {
+        name: string;
+        url: string;
+        version?: string;
+      };
       git?: {
         url: string;
         ref?: string;
-        path?: string;
-        branch?: string;
+        path: string;
+      };
+      local?: {
+        path: string;
       };
     };
-    values?: any;
+    values?: {
+      inline?: string;
+      valuesFrom?: Array<{
+        configMapKeyRef?: { name: string; key: string };
+        secretKeyRef?: { name: string; key: string };
+      }>;
+    };
     deployment: {
       namespace: string;
+      createNamespace?: boolean;
       timeout?: string;
-      maxRetries?: number;
-      waitAfterDeployment?: string;
+      retries?: number;
+      waitAfterDeploy?: string;
       autoUninstallAfter?: string;
     };
     cleanup?: {
@@ -55,7 +67,7 @@ export interface HelmRelease {
       deleteImages?: boolean;
     };
   };
-  status: {
+  status?: {
     phase: string;
     message?: string;
     deployedAt?: string;
@@ -95,7 +107,7 @@ export interface HelmTestJob {
       deleteImages?: boolean;
     };
   };
-  status: {
+  status?: {
     phase: string;
     message?: string;
     startTime?: string;

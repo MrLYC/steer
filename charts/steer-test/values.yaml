@@ -1,0 +1,3 @@
+tests:
+  # When true, the Helm test hook will exit non-zero.
+  shouldFail: false

@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/robfig/cron/v3"
@@ -36,17 +37,20 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	steerv1alpha1 "github.com/MrLYC/steer/operator/api/v1alpha1"
+	"github.com/MrLYC/steer/operator/pkg/helm"
 )
 
 // HelmTestJobReconciler reconciles a HelmTestJob object
 type HelmTestJobReconciler struct {
 	client.Client
 	Scheme *runtime.Scheme
+	Helm   helm.Client
 }
 
-//+kubebuilder:rbac:groups=steer.steer.io,resources=helmtestjobs,verbs=get;list;watch;create;update;patch;delete
-//+kubebuilder:rbac:groups=steer.steer.io,resources=helmtestjobs/status,verbs=get;update;patch
-//+kubebuilder:rbac:groups=steer.steer.io,resources=helmtestjobs/finalizers,verbs=update
+//+kubebuilder:rbac:groups=steer.io,resources=helmtestjobs,verbs=get;list;watch;create;update;patch;delete
+//+kubebuilder:rbac:groups=steer.io,resources=helmtestjobs/status,verbs=get;update;patch
+//+kubebuilder:rbac:groups=steer.io,resources=helmtestjobs/finalizers,verbs=update
+//+kubebuilder:rbac:groups=steer.io,resources=helmreleases,verbs=get
 //+kubebuilder:rbac:groups=batch,resources=jobs,verbs=get;list;watch;create;update;patch;delete
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
@@ -147,18 +151,22 @@ func (r *HelmTestJobReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		job.Status.CurrentIndex = 0
 	}
 
-	// Resolve image for all Jobs.
-	image := job.Spec.Test.Image
-	if image == "" {
-		image = os.Getenv("STEER_JOB_IMAGE")
-	}
-	if image == "" {
-		err := fmt.Errorf("missing test image: set spec.test.image or env STEER_JOB_IMAGE")
-		job.Status.Phase = steerv1alpha1.HelmTestJobPhaseFailed
-		job.Status.Message = err.Error()
-		job.Status.CompletionTime = &nowMeta
-		_ = r.Status().Update(ctx, &job)
-		return ctrl.Result{}, err
+	// Resolve image only when we need Kubernetes Jobs (hooks).
+	needsJobImage := len(job.Spec.Hooks.PreTest) > 0 || len(job.Spec.Hooks.PostTest) > 0
+	image := ""
+	if needsJobImage {
+		image = job.Spec.Test.Image
+		if image == "" {
+			image = os.Getenv("STEER_JOB_IMAGE")
+		}
+		if image == "" {
+			err := fmt.Errorf("missing test image for hooks: set spec.test.image or env STEER_JOB_IMAGE")
+			job.Status.Phase = steerv1alpha1.HelmTestJobPhaseFailed
+			job.Status.Message = err.Error()
+			job.Status.CompletionTime = &nowMeta
+			_ = r.Status().Update(ctx, &job)
+			return ctrl.Result{}, err
+		}
 	}
 
 	// State machine: execute one stage/hook at a time.
@@ -197,30 +205,74 @@ func (r *HelmTestJobReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			return ctrl.Result{RequeueAfter: 2 * time.Second}, nil
 
 		case steerv1alpha1.HelmTestJobStageTest:
-			name := jobNameForTest(job.Name, runKey)
-			phase, msg, err := r.ensureTestJob(ctx, &job, name, image)
-			if err != nil {
+			if r.Helm == nil {
+				err := fmt.Errorf("helm client not configured")
 				job.Status.Phase = steerv1alpha1.HelmTestJobPhaseFailed
 				job.Status.Message = err.Error()
 				job.Status.CompletionTime = &nowMeta
 				_ = r.Status().Update(ctx, &job)
 				return ctrl.Result{}, err
 			}
-			if phase == steerv1alpha1.HelmTestJobPhaseSucceeded {
-				job.Status.CurrentStage = steerv1alpha1.HelmTestJobStagePostTest
-				job.Status.CurrentIndex = 0
-				continue
+
+			refNS := job.Spec.HelmReleaseRef.Namespace
+			if refNS == "" {
+				refNS = job.Namespace
 			}
-			if phase == steerv1alpha1.HelmTestJobPhaseFailed {
+			refName := job.Spec.HelmReleaseRef.Name
+			var hr steerv1alpha1.HelmRelease
+			if err := r.Get(ctx, types.NamespacedName{Namespace: refNS, Name: refName}, &hr); err != nil {
 				job.Status.Phase = steerv1alpha1.HelmTestJobPhaseFailed
-				job.Status.Message = msg
+				job.Status.Message = err.Error()
+				job.Status.CompletionTime = &nowMeta
+				_ = r.Status().Update(ctx, &job)
+				return ctrl.Result{}, err
+			}
+
+			releaseNS := hr.Spec.Deployment.Namespace
+			if releaseNS == "" {
+				releaseNS = hr.Namespace
+			}
+
+			started := metav1.Now()
+			reqTest := helm.TestRequest{
+				ReleaseName: hr.Name,
+				Namespace:   releaseNS,
+				Timeout:     job.Spec.Test.Timeout,
+				Filter:      job.Spec.Test.Filter,
+			}
+			result, err := r.Helm.Test(ctx, reqTest)
+			completed := metav1.Now()
+			logsEnabled := job.Spec.Test.Logs == nil || *job.Spec.Test.Logs
+			logs := ""
+			if logsEnabled {
+				logs = strings.Join(result.Logs, "\n")
+			}
+			if err != nil {
+				job.Status.TestResults = []steerv1alpha1.TestResult{{
+					Name:        "helm-test",
+					Phase:       steerv1alpha1.HelmTestJobPhaseFailed,
+					StartedAt:   &started,
+					CompletedAt: &completed,
+					Logs:        logs,
+				}}
+				job.Status.Phase = steerv1alpha1.HelmTestJobPhaseFailed
+				job.Status.Message = err.Error()
 				job.Status.CompletionTime = &nowMeta
 				_ = r.Status().Update(ctx, &job)
 				return ctrl.Result{}, nil
 			}
-			job.Status.Message = msg
-			_ = r.Status().Update(ctx, &job)
-			return ctrl.Result{RequeueAfter: 2 * time.Second}, nil
+
+			job.Status.TestResults = []steerv1alpha1.TestResult{{
+				Name:        "helm-test",
+				Phase:       steerv1alpha1.HelmTestJobPhaseSucceeded,
+				StartedAt:   &started,
+				CompletedAt: &completed,
+				Logs:        logs,
+			}}
+			job.Status.CurrentStage = steerv1alpha1.HelmTestJobStagePostTest
+			job.Status.CurrentIndex = 0
+			job.Status.Message = ""
+			continue
 
 		case steerv1alpha1.HelmTestJobStagePostTest:
 			if int(job.Status.CurrentIndex) >= len(job.Spec.Hooks.PostTest) {
@@ -284,18 +336,6 @@ func jobNameForHook(parentName, runKey, stage string, idx int) string {
 	return base
 }
 
-func jobNameForTest(parentName, runKey string) string {
-	base := fmt.Sprintf("%s-%s-test", parentName, runKey)
-	if len(validation.IsDNS1123Label(base)) == 0 && len(base) <= 63 {
-		return base
-	}
-	if len(base) > 63 {
-		base = base[:63]
-		base = trimTrailingHyphen(base)
-	}
-	return base
-}
-
 func trimTrailingHyphen(s string) string {
 	for len(s) > 0 && s[len(s)-1] == '-' {
 		s = s[:len(s)-1]
@@ -335,39 +375,6 @@ func (r *HelmTestJobReconciler) ensureHookJob(ctx context.Context, parent *steer
 			return steerv1alpha1.HelmTestJobPhaseFailed, "", err
 		}
 		return steerv1alpha1.HelmTestJobPhasePending, "hook job created", nil
-	}
-
-	return phaseFromJob(&kjob)
-}
-
-func (r *HelmTestJobReconciler) ensureTestJob(ctx context.Context, parent *steerv1alpha1.HelmTestJob, jobName, image string) (steerv1alpha1.HelmTestJobPhase, string, error) {
-	var kjob batchv1.Job
-	key := types.NamespacedName{Name: jobName, Namespace: parent.Namespace}
-	if err := r.Get(ctx, key, &kjob); err != nil {
-		if !errors.IsNotFound(err) {
-			return steerv1alpha1.HelmTestJobPhaseFailed, "", err
-		}
-		newJob := batchv1.Job{ObjectMeta: metav1.ObjectMeta{Name: jobName, Namespace: parent.Namespace}}
-		if err := controllerutil.SetControllerReference(parent, &newJob, r.Scheme); err != nil {
-			return steerv1alpha1.HelmTestJobPhaseFailed, "", err
-		}
-
-		// Minimal placeholder command. Real helm execution can be wired later.
-		container := corev1.Container{
-			Name:            "test",
-			Image:           image,
-			ImagePullPolicy: corev1.PullIfNotPresent,
-			Command:         []string{"/bin/sh", "-c", "echo helm test placeholder"},
-		}
-		newJob.Spec.Template.Spec = corev1.PodSpec{
-			RestartPolicy: corev1.RestartPolicyNever,
-			Containers:    []corev1.Container{container},
-		}
-		newJob.Spec.BackoffLimit = ptrInt32(0)
-		if err := r.Create(ctx, &newJob); err != nil {
-			return steerv1alpha1.HelmTestJobPhaseFailed, "", err
-		}
-		return steerv1alpha1.HelmTestJobPhasePending, "test job created", nil
 	}
 
 	return phaseFromJob(&kjob)

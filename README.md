@@ -38,6 +38,33 @@ kubectl -n steer-operator-system port-forward svc/steer-operator-steer-web 8080:
 
 然后访问：`http://localhost:8080/`（UI）和 `http://localhost:8080/api/v1/...`（API）。
 
+### Helm 安装（推荐本地/演示）
+
+仓库提供了一个 Helm chart：`charts/steer-operator`，用于部署 operator/manager（而不是早期演示用的 `backend/`）。
+
+```bash
+helm upgrade --install steer-operator charts/steer-operator \
+  -n steer-operator-system --create-namespace \
+  --set image.repository=<your-registry>/steer-operator \
+  --set image.tag=<tag>
+```
+
+#### Metrics（不使用 kube-rbac-proxy）
+
+该 Helm chart **不包含 kube-rbac-proxy**。metrics 由 manager 直接提供（默认只监听 127.0.0.1）。
+
+- 默认：`127.0.0.1:8080`（集群内不可直接访问，最安全）
+- 如需在集群内暴露（请自行配合 NetworkPolicy 等）：
+
+```bash
+helm upgrade --install steer-operator charts/steer-operator \
+  -n steer-operator-system --create-namespace \
+  --set image.repository=<your-registry>/steer-operator \
+  --set image.tag=<tag> \
+  --set metrics.listenOnAllInterfaces=true \
+  --set metrics.service.enabled=true
+```
+
 ### 使用指南
 
 1. 打开 Web 界面。
@@ -77,12 +104,70 @@ metadata:
   namespace: default
 spec:
   chart:
-    name: nginx
-    repository: https://charts.bitnami.com/bitnami
-    version: 13.2.23
+    source: repository
+    repository:
+      name: hello-world
+      url: https://helm.github.io/examples
+      version: 0.1.0
   deployment:
-    namespace: test-nginx
+    # 部署到的 namespace（UI 默认与 metadata.namespace 相同）
+    namespace: default
+  values:
+    # chart values 的 YAML（也可留空字符串）
+    inline: |
+      replicaCount: 1
 ```
+
+## UI 页面怎么配置（Embedded Web 测试模式）
+
+### 1) 创建 Release（Releases 页面）
+
+页面只需要填一个 **Namespace**：它会同时用于 `metadata.namespace` 和 `spec.deployment.namespace`。
+
+用官方示例仓库的 chart（你给的 `https://helm.github.io/examples` 是有效的 Helm repo）：
+
+- Name: `test`
+- Namespace: `test-steer`
+- Chart Name: `hello-world`
+- Repository URL: `https://helm.github.io/examples`
+- Version: `0.1.0`
+- Values (YAML/JSON): 留空（或填 YAML 字符串）
+
+对应的 CR（等价于 UI 创建的 payload）：
+
+```yaml
+apiVersion: steer.io/v1alpha1
+kind: HelmRelease
+metadata:
+  name: test
+  namespace: test-steer
+spec:
+  chart:
+    source: repository
+    repository:
+      name: hello-world
+      url: https://helm.github.io/examples
+      version: 0.1.0
+  deployment:
+    namespace: test-steer
+  values:
+    inline: ""
+```
+
+> 你之前的报错通常是因为用了旧结构（`spec.chart.name/spec.chart.repository/spec.values:{}`）去打 operator 的 API。
+
+### 2) 创建 Test Job（Test Jobs 页面）
+
+- Name: `test-hello-world-01`
+- Namespace: `test-steer`
+- Release: 选择 `test-steer/test`
+- Schedule Type: `once`
+- Delay: `5s`
+
+> NOTE：当前 operator 会在自身进程内直接执行 `helm test <release> -n <ns>`（方案 A），不再使用占位命令。
+> 
+> - **不配置 hooks** 时：不需要 `spec.test.image` / `STEER_JOB_IMAGE`。
+> - **配置 hooks（script）** 时：hooks 仍通过 Kubernetes Job 执行，因此需要提供 `spec.test.image` 或设置环境变量 `STEER_JOB_IMAGE`（镜像需包含 /bin/sh 等）。
 
 ### HelmTestJob
 

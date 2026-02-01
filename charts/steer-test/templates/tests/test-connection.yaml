@@ -1,0 +1,25 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: {{ include "steer-test.fullname" . }}-test-connection
+  labels:
+    {{- include "steer-test.labels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": test
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  restartPolicy: Never
+  containers:
+    - name: test-connection
+      image: busybox:1.36
+      command:
+        - sh
+        - -c
+        - |
+          set -eu
+          echo "running helm test hook"
+          if [ "{{ .Values.tests.shouldFail }}" = "true" ]; then
+            echo "forced failure (tests.shouldFail=true)" >&2
+            exit 1
+          fi
+          echo "ok"
