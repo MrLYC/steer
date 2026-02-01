@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Table, Button, Tag, Space, DialogPlugin, Dialog, Form, Input, Textarea, MessagePlugin } from 'tdesign-react';
+import { Table, Button, Tag, Space, DialogPlugin, Dialog, Form, Input, Textarea, MessagePlugin, Checkbox } from 'tdesign-react';
 import { AddIcon, RefreshIcon, DeleteIcon } from 'tdesign-icons-react';
 import { helmReleaseApi, HelmRelease } from '../api/client';
 
@@ -53,7 +53,7 @@ const HelmReleases: React.FC = () => {
       body: `Are you sure you want to delete release ${row.metadata.name}?`,
       onConfirm: async () => {
         try {
-          await helmReleaseApi.delete(row.metadata.namespace, row.metadata.name);
+          await helmReleaseApi.delete(row.metadata.name);
           MessagePlugin.success('Release deleted successfully');
           loadReleases();
           confirmDialog.hide();
@@ -67,7 +67,8 @@ const HelmReleases: React.FC = () => {
   const handleSubmit = async (context: any) => {
     if (context.validateResult === true) {
       const values = form.getFieldsValue(true);
-      const namespace = values.namespace;
+      const targetNamespace = values.targetNamespace;
+      const createNamespace = values.createNamespace !== false;
       const valuesInline = typeof values.values === 'string' ? values.values : '';
 
       const newRelease: HelmRelease = {
@@ -75,7 +76,6 @@ const HelmReleases: React.FC = () => {
         kind: 'HelmRelease',
         metadata: {
           name: values.name,
-          namespace,
         },
         spec: {
           chart: {
@@ -90,8 +90,8 @@ const HelmReleases: React.FC = () => {
             inline: valuesInline,
           },
           deployment: {
-            // Use the same namespace for CR + deployment namespace.
-            namespace,
+            namespace: targetNamespace,
+            createNamespace,
           },
         },
       };
@@ -110,7 +110,11 @@ const HelmReleases: React.FC = () => {
 
   const columns = [
     { colKey: 'metadata.name', title: 'Name' },
-    { colKey: 'metadata.namespace', title: 'Namespace' },
+    {
+      colKey: 'spec.deployment.namespace',
+      title: 'Target Namespace',
+      cell: ({ row }: { row: HelmRelease }) => row.spec.deployment?.namespace || '-',
+    },
     { 
       colKey: 'spec.chart.name', 
       title: 'Chart',
@@ -175,19 +179,22 @@ const HelmReleases: React.FC = () => {
           <Form.FormItem name="name" label="Name" rules={[{ required: true }]}>
             <Input placeholder="Release name" />
           </Form.FormItem>
-          <Form.FormItem name="namespace" label="Namespace" rules={[{ required: true }]}>
-            <Input placeholder="Namespace" defaultValue="default" />
+          <Form.FormItem name="targetNamespace" label="Target Namespace" rules={[{ required: true }]}>
+            <Input placeholder="Namespace to deploy chart into" defaultValue="default" />
+          </Form.FormItem>
+          <Form.FormItem name="createNamespace" label="Create Namespace" initialData={true}>
+            <Checkbox>Auto-create target namespace if missing</Checkbox>
           </Form.FormItem>
           <Form.FormItem name="chartName" label="Chart Name" rules={[{ required: true }]}>
             <Input placeholder="Chart name (e.g. hello-world)" defaultValue="hello-world" />
           </Form.FormItem>
-          <Form.FormItem name="repository" label="Repository">
+          <Form.FormItem name="repository" label="Repository" rules={[{ required: true }]}>
             <Input placeholder="Chart repository URL" defaultValue="https://helm.github.io/examples" />
           </Form.FormItem>
           <Form.FormItem name="version" label="Version">
             <Input placeholder="Chart version" defaultValue="0.1.0" />
           </Form.FormItem>
-          <Form.FormItem name="values" label="Values (YAML/JSON)">
+          <Form.FormItem name="values" label="Values (YAML)">
             <Textarea placeholder={'replicaCount: 1\n'} autosize={{ minRows: 3, maxRows: 10 }} />
           </Form.FormItem>
         </Form>

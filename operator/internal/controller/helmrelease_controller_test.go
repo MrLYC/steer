@@ -21,6 +21,7 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -61,8 +62,8 @@ var _ = Describe("HelmRelease Controller", func() {
 							},
 						},
 						Deployment: steerv1alpha1.DeploymentSpec{
-							Namespace:       "default",
-							CreateNamespace: false,
+							Namespace:       "target-ns",
+							CreateNamespace: true,
 							Timeout:         metav1.Duration{Duration: 0},
 						},
 					},
@@ -79,14 +80,20 @@ var _ = Describe("HelmRelease Controller", func() {
 
 			By("Cleanup the specific resource instance HelmRelease")
 			Expect(k8sClient.Delete(ctx, resource)).To(Succeed())
+
+			By("Cleanup the created target namespace")
+			ns := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "target-ns"}}
+			_ = k8sClient.Delete(ctx, ns)
 		})
 		It("should successfully reconcile the resource", func() {
 			By("Reconciling the created resource")
+			var gotHelmReq helm.InstallOrUpgradeRequest
 			controllerReconciler := &HelmReleaseReconciler{
 				Client: k8sClient,
 				Scheme: k8sClient.Scheme(),
 				Helm: &helm.FakeClient{
 					InstallOrUpgradeFunc: func(ctx context.Context, req helm.InstallOrUpgradeRequest) (helm.ReleaseInfo, error) {
+						gotHelmReq = req
 						return helm.ReleaseInfo{Name: req.ReleaseName, Namespace: req.Namespace, Version: 1, Status: "deployed"}, nil
 					},
 				},
@@ -103,6 +110,16 @@ var _ = Describe("HelmRelease Controller", func() {
 			Expect(updated.Status.DeployedAt).NotTo(BeNil())
 			Expect(updated.Status.HelmRelease).NotTo(BeNil())
 			Expect(updated.Status.HelmRelease.Name).To(Equal(resourceName))
+
+			By("Verifying target namespace is created and labeled by Steer")
+			createdNS := &corev1.Namespace{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "target-ns"}, createdNS)).To(Succeed())
+			Expect(createdNS.Labels).NotTo(BeNil())
+			Expect(createdNS.Labels["steer.io/managed-by"]).To(Equal("steer"))
+
+			By("Verifying helm is called with the target namespace")
+			Expect(gotHelmReq.Namespace).To(Equal("target-ns"))
+			Expect(gotHelmReq.CreateNamespace).To(BeFalse())
 		})
 	})
 })

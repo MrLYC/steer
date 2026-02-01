@@ -1,8 +1,8 @@
 image:
-  repository: docker.io/username/steer-operator
+  repository: docker.io/mrlyc/steer-operator
   pullPolicy: IfNotPresent
   # Overrides the image tag whose default is the chart appVersion.
-  tag: ""
+  tag: "sha-ff40dda"
 
 imagePullSecrets: []
 nameOverride: ""

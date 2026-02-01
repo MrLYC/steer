@@ -19,8 +19,11 @@ package controller
 import (
 	"context"
 
+	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
@@ -28,6 +31,40 @@ import (
 	steerv1alpha1 "github.com/MrLYC/steer/operator/api/v1alpha1"
 	"github.com/MrLYC/steer/operator/pkg/helm"
 )
+
+const (
+	steerManagedByLabelKey   = "steer.io/managed-by"
+	steerManagedByLabelValue = "steer"
+)
+
+func (r *HelmReleaseReconciler) ensureSteerNamespace(ctx context.Context, namespace string) error {
+	if namespace == "" {
+		return nil
+	}
+
+	var ns corev1.Namespace
+	if err := r.Get(ctx, types.NamespacedName{Name: namespace}, &ns); err == nil {
+		return nil
+	} else if !apierrors.IsNotFound(err) {
+		return err
+	}
+
+	toCreate := &corev1.Namespace{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: namespace,
+			Labels: map[string]string{
+				steerManagedByLabelKey: steerManagedByLabelValue,
+			},
+		},
+	}
+	if err := r.Create(ctx, toCreate); err != nil {
+		if apierrors.IsAlreadyExists(err) {
+			return nil
+		}
+		return err
+	}
+	return nil
+}
 
 // HelmReleaseReconciler reconciles a HelmRelease object
 type HelmReleaseReconciler struct {
@@ -39,6 +76,7 @@ type HelmReleaseReconciler struct {
 //+kubebuilder:rbac:groups=steer.io,resources=helmreleases,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=steer.io,resources=helmreleases/status,verbs=get;update;patch
 //+kubebuilder:rbac:groups=steer.io,resources=helmreleases/finalizers,verbs=update
+//+kubebuilder:rbac:groups="",resources=namespaces,verbs=get;create
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
@@ -62,13 +100,25 @@ func (r *HelmReleaseReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		return ctrl.Result{}, nil
 	}
 
+	// If createNamespace is enabled, we create the namespace ourselves so we can
+	// attach Steer labels. Helm's `--create-namespace` cannot apply labels.
+	if hr.Spec.Deployment.CreateNamespace {
+		if err := r.ensureSteerNamespace(ctx, hr.Spec.Deployment.Namespace); err != nil {
+			hr.Status.Phase = steerv1alpha1.HelmReleasePhaseFailed
+			hr.Status.Message = err.Error()
+			_ = r.Status().Update(ctx, &hr)
+			return ctrl.Result{}, err
+		}
+	}
+
 	releaseName := hr.Name
 	reqInstall := helm.InstallOrUpgradeRequest{
-		ReleaseName:     releaseName,
-		Namespace:       hr.Spec.Deployment.Namespace,
-		Chart:           hr.Spec.Chart,
-		Values:          hr.Spec.Values,
-		CreateNamespace: hr.Spec.Deployment.CreateNamespace,
+		ReleaseName: releaseName,
+		Namespace:   hr.Spec.Deployment.Namespace,
+		Chart:       hr.Spec.Chart,
+		Values:      hr.Spec.Values,
+		// Namespace creation is handled above (with labels).
+		CreateNamespace: false,
 		Timeout:         hr.Spec.Deployment.Timeout,
 	}
 

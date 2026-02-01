@@ -1,4 +1,4 @@
-import axios from 'axios';
+import axios, { type AxiosResponse } from 'axios';
 
 // API 基础 URL
 // In-cluster / same-origin (served by operator's embedded web server)
@@ -14,7 +14,7 @@ const apiClient = axios.create({
 
 // 响应拦截器处理错误
 apiClient.interceptors.response.use(
-  (response: unknown) => response,
+  (response: AxiosResponse) => response,
   (error: unknown) => {
     console.error('API Error:', error);
     return Promise.reject(error);
@@ -27,7 +27,8 @@ export interface HelmRelease {
   kind: string;
   metadata: {
     name: string;
-    namespace: string;
+    // CR namespace is enforced by the server (operator namespace).
+    namespace?: string;
     labels?: Record<string, string>;
   };
   spec: {
@@ -79,13 +80,15 @@ export interface HelmTestJob {
   kind: string;
   metadata: {
     name: string;
-    namespace: string;
+    // CR namespace is enforced by the server (operator namespace).
+    namespace?: string;
     labels?: Record<string, string>;
   };
   spec: {
     helmReleaseRef: {
       name: string;
-      namespace: string;
+      // Server enforces HelmReleaseRef namespace = operator namespace.
+      namespace?: string;
     };
     schedule: {
       type: 'once' | 'cron';
@@ -108,12 +111,15 @@ export interface HelmTestJob {
     };
   };
   status?: {
-    phase: string;
+    phase?: string;
     message?: string;
     startTime?: string;
     completionTime?: string;
     testResults?: TestResult[];
-    hookResults?: HookResult[];
+    hookResults?: {
+      preTest?: HookResult[];
+      postTest?: HookResult[];
+    };
   };
 }
 
@@ -138,9 +144,9 @@ export interface EnvVar {
 export interface TestResult {
   name: string;
   phase: string;
-  startedAt: string;
-  completedAt: string;
-  message?: string;
+  startedAt?: string;
+  completedAt?: string;
+  logs?: string;
 }
 
 export interface HookResult {
@@ -153,13 +159,13 @@ export interface HookResult {
 export const helmReleaseApi = {
   list: () => apiClient.get<HelmRelease[]>('/helmreleases'),
   create: (data: HelmRelease) => apiClient.post<HelmRelease>('/helmreleases', data),
-  get: (namespace: string, name: string) => apiClient.get<HelmRelease>(`/helmreleases/${namespace}/${name}`),
-  delete: (namespace: string, name: string) => apiClient.delete(`/helmreleases/${namespace}/${name}`),
+  get: (name: string) => apiClient.get<HelmRelease>(`/helmreleases/${name}`),
+  delete: (name: string) => apiClient.delete(`/helmreleases/${name}`),
 };
 
 export const helmTestJobApi = {
   list: () => apiClient.get<HelmTestJob[]>('/helmtestjobs'),
   create: (data: HelmTestJob) => apiClient.post<HelmTestJob>('/helmtestjobs', data),
-  get: (namespace: string, name: string) => apiClient.get<HelmTestJob>(`/helmtestjobs/${namespace}/${name}`),
-  delete: (namespace: string, name: string) => apiClient.delete(`/helmtestjobs/${namespace}/${name}`),
+  get: (name: string) => apiClient.get<HelmTestJob>(`/helmtestjobs/${name}`),
+  delete: (name: string) => apiClient.delete(`/helmtestjobs/${name}`),
 };

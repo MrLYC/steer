@@ -24,10 +24,26 @@ type Server struct {
 	addr      string
 	staticDir string
 	k8sClient client.Client
+	// namespace is where this web server will create/list CRs.
+	// In embedded-web mode, this should be the operator (pod) namespace.
+	namespace string
 }
 
 func NewServer(addr string, staticDir string, k8sClient client.Client) *Server {
 	return &Server{addr: addr, staticDir: staticDir, k8sClient: k8sClient}
+}
+
+func detectOperatorNamespace() string {
+	if ns := strings.TrimSpace(os.Getenv("POD_NAMESPACE")); ns != "" {
+		return ns
+	}
+	// Kubernetes mounts the serviceaccount namespace here.
+	if b, err := os.ReadFile("/var/run/secrets/kubernetes.io/serviceaccount/namespace"); err == nil {
+		if ns := strings.TrimSpace(string(b)); ns != "" {
+			return ns
+		}
+	}
+	return ""
 }
 
 func (s *Server) Start(ctx context.Context) error {
@@ -38,19 +54,28 @@ func (s *Server) Start(ctx context.Context) error {
 		return errors.New("k8s client is nil")
 	}
 
+	// Force all CRs into the operator namespace.
+	// If we can't detect it (e.g. local runs), fall back to "default".
+	if s.namespace == "" {
+		s.namespace = detectOperatorNamespace()
+		if s.namespace == "" {
+			s.namespace = "default"
+		}
+	}
+
 	router := mux.NewRouter()
 	router.Use(corsMiddleware)
 
 	api := router.PathPrefix("/api/v1").Subrouter()
 	api.HandleFunc("/helmreleases", s.handleListHelmReleases).Methods(http.MethodGet, http.MethodOptions)
 	api.HandleFunc("/helmreleases", s.handleCreateHelmRelease).Methods(http.MethodPost, http.MethodOptions)
-	api.HandleFunc("/helmreleases/{namespace}/{name}", s.handleGetHelmRelease).Methods(http.MethodGet, http.MethodOptions)
-	api.HandleFunc("/helmreleases/{namespace}/{name}", s.handleDeleteHelmRelease).Methods(http.MethodDelete, http.MethodOptions)
+	api.HandleFunc("/helmreleases/{name}", s.handleGetHelmRelease).Methods(http.MethodGet, http.MethodOptions)
+	api.HandleFunc("/helmreleases/{name}", s.handleDeleteHelmRelease).Methods(http.MethodDelete, http.MethodOptions)
 
 	api.HandleFunc("/helmtestjobs", s.handleListHelmTestJobs).Methods(http.MethodGet, http.MethodOptions)
 	api.HandleFunc("/helmtestjobs", s.handleCreateHelmTestJob).Methods(http.MethodPost, http.MethodOptions)
-	api.HandleFunc("/helmtestjobs/{namespace}/{name}", s.handleGetHelmTestJob).Methods(http.MethodGet, http.MethodOptions)
-	api.HandleFunc("/helmtestjobs/{namespace}/{name}", s.handleDeleteHelmTestJob).Methods(http.MethodDelete, http.MethodOptions)
+	api.HandleFunc("/helmtestjobs/{name}", s.handleGetHelmTestJob).Methods(http.MethodGet, http.MethodOptions)
+	api.HandleFunc("/helmtestjobs/{name}", s.handleDeleteHelmTestJob).Methods(http.MethodDelete, http.MethodOptions)
 
 	// Static UI: keep it as a fallback, so API routes win.
 	if s.staticDir != "" {
@@ -133,7 +158,7 @@ func writeError(w http.ResponseWriter, status int, msg string) {
 func (s *Server) handleListHelmReleases(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	var list steerv1alpha1.HelmReleaseList
-	if err := s.k8sClient.List(ctx, &list); err != nil {
+	if err := s.k8sClient.List(ctx, &list, client.InNamespace(s.namespace)); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -147,14 +172,16 @@ func (s *Server) handleCreateHelmRelease(w http.ResponseWriter, r *http.Request)
 		writeError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
+	// Enforce CR namespace = operator namespace.
+	obj.Namespace = s.namespace
 	if obj.APIVersion == "" {
 		obj.APIVersion = steerv1alpha1.GroupVersion.String()
 	}
 	if obj.Kind == "" {
 		obj.Kind = "HelmRelease"
 	}
-	if obj.Name == "" || obj.Namespace == "" {
-		writeError(w, http.StatusBadRequest, "metadata.name and metadata.namespace are required")
+	if obj.Name == "" {
+		writeError(w, http.StatusBadRequest, "metadata.name is required")
 		return
 	}
 	if err := s.k8sClient.Create(ctx, &obj); err != nil {
@@ -171,7 +198,7 @@ func (s *Server) handleCreateHelmRelease(w http.ResponseWriter, r *http.Request)
 func (s *Server) handleGetHelmRelease(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	vars := mux.Vars(r)
-	nn := types.NamespacedName{Namespace: vars["namespace"], Name: vars["name"]}
+	nn := types.NamespacedName{Namespace: s.namespace, Name: vars["name"]}
 	var obj steerv1alpha1.HelmRelease
 	if err := s.k8sClient.Get(ctx, nn, &obj); err != nil {
 		if apierrors.IsNotFound(err) {
@@ -187,7 +214,7 @@ func (s *Server) handleGetHelmRelease(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleDeleteHelmRelease(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	vars := mux.Vars(r)
-	nn := types.NamespacedName{Namespace: vars["namespace"], Name: vars["name"]}
+	nn := types.NamespacedName{Namespace: s.namespace, Name: vars["name"]}
 	obj := &steerv1alpha1.HelmRelease{}
 	obj.Namespace = nn.Namespace
 	obj.Name = nn.Name
@@ -205,7 +232,7 @@ func (s *Server) handleDeleteHelmRelease(w http.ResponseWriter, r *http.Request)
 func (s *Server) handleListHelmTestJobs(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	var list steerv1alpha1.HelmTestJobList
-	if err := s.k8sClient.List(ctx, &list); err != nil {
+	if err := s.k8sClient.List(ctx, &list, client.InNamespace(s.namespace)); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -219,14 +246,18 @@ func (s *Server) handleCreateHelmTestJob(w http.ResponseWriter, r *http.Request)
 		writeError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
+	// Enforce CR namespace = operator namespace.
+	obj.Namespace = s.namespace
+	// Enforce HelmReleaseRef namespace = operator namespace (since HelmRelease CRs live there).
+	obj.Spec.HelmReleaseRef.Namespace = s.namespace
 	if obj.APIVersion == "" {
 		obj.APIVersion = steerv1alpha1.GroupVersion.String()
 	}
 	if obj.Kind == "" {
 		obj.Kind = "HelmTestJob"
 	}
-	if obj.Name == "" || obj.Namespace == "" {
-		writeError(w, http.StatusBadRequest, "metadata.name and metadata.namespace are required")
+	if obj.Name == "" {
+		writeError(w, http.StatusBadRequest, "metadata.name is required")
 		return
 	}
 	if err := s.k8sClient.Create(ctx, &obj); err != nil {
@@ -243,7 +274,7 @@ func (s *Server) handleCreateHelmTestJob(w http.ResponseWriter, r *http.Request)
 func (s *Server) handleGetHelmTestJob(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	vars := mux.Vars(r)
-	nn := types.NamespacedName{Namespace: vars["namespace"], Name: vars["name"]}
+	nn := types.NamespacedName{Namespace: s.namespace, Name: vars["name"]}
 	var obj steerv1alpha1.HelmTestJob
 	if err := s.k8sClient.Get(ctx, nn, &obj); err != nil {
 		if apierrors.IsNotFound(err) {
@@ -259,7 +290,7 @@ func (s *Server) handleGetHelmTestJob(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleDeleteHelmTestJob(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	vars := mux.Vars(r)
-	nn := types.NamespacedName{Namespace: vars["namespace"], Name: vars["name"]}
+	nn := types.NamespacedName{Namespace: s.namespace, Name: vars["name"]}
 	obj := &steerv1alpha1.HelmTestJob{}
 	obj.Namespace = nn.Namespace
 	obj.Name = nn.Name

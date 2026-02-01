@@ -8,6 +8,13 @@ metadata:
     {{- include "steer-operator.labels" . | nindent 4 }}
 rules:
   - apiGroups:
+      - ""
+    resources:
+      - namespaces
+    verbs:
+      - get
+      - create
+  - apiGroups:
       - batch
     resources:
       - jobs

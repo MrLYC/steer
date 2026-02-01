@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Table, Button, Tag, Space, DialogPlugin, Dialog, Form, Input, Select, MessagePlugin, Drawer } from 'tdesign-react';
-import { AddIcon, RefreshIcon, DeleteIcon, PlayCircleIcon, FileIcon } from 'tdesign-icons-react';
+import { AddIcon, RefreshIcon, DeleteIcon, FileIcon } from 'tdesign-icons-react';
 import { helmTestJobApi, helmReleaseApi, HelmTestJob, HelmRelease } from '../api/client';
 
 const HelmTestJobs: React.FC = () => {
@@ -11,6 +11,7 @@ const HelmTestJobs: React.FC = () => {
   const [logVisible, setLogVisible] = useState(false);
   const [currentJob, setCurrentJob] = useState<HelmTestJob | null>(null);
   const [form] = Form.useForm();
+  const [scheduleType, setScheduleType] = useState<'once' | 'cron'>('once');
 
   useEffect(() => {
     loadJobs();
@@ -44,7 +45,7 @@ const HelmTestJobs: React.FC = () => {
       body: `Are you sure you want to delete job ${row.metadata.name}?`,
       onConfirm: async () => {
         try {
-          await helmTestJobApi.delete(row.metadata.namespace, row.metadata.name);
+          await helmTestJobApi.delete(row.metadata.name);
           MessagePlugin.success('Job deleted successfully');
           loadJobs();
           confirmDialog.hide();
@@ -58,25 +59,31 @@ const HelmTestJobs: React.FC = () => {
   const handleSubmit = async (context: any) => {
     if (context.validateResult === true) {
       const values = form.getFieldsValue(true);
-      const [releaseNamespace, releaseName] = values.release.split('/');
-      
+
+      const schedule: HelmTestJob['spec']['schedule'] = {
+        type: values.scheduleType,
+      };
+
+      if (values.scheduleType === 'once') {
+        schedule.delay = values.delay;
+      }
+
+      if (values.scheduleType === 'cron') {
+        schedule.cron = values.cron;
+        schedule.timezone = values.timezone;
+      }
+       
       const newJob: HelmTestJob = {
         apiVersion: 'steer.io/v1alpha1',
         kind: 'HelmTestJob',
         metadata: {
           name: values.name,
-          namespace: values.namespace,
         },
         spec: {
           helmReleaseRef: {
-            name: releaseName,
-            namespace: releaseNamespace,
+            name: values.release,
           },
-          schedule: {
-            type: values.scheduleType,
-            delay: values.delay,
-            cron: values.cron,
-          },
+          schedule,
           test: {
             timeout: '10m',
             logs: true,
@@ -103,11 +110,10 @@ const HelmTestJobs: React.FC = () => {
 
   const columns = [
     { colKey: 'metadata.name', title: 'Name' },
-    { colKey: 'metadata.namespace', title: 'Namespace' },
     { 
       colKey: 'spec.helmReleaseRef.name', 
       title: 'Target Release',
-      cell: ({ row }: { row: HelmTestJob }) => `${row.spec.helmReleaseRef.namespace}/${row.spec.helmReleaseRef.name}`
+      cell: ({ row }: { row: HelmTestJob }) => row.spec.helmReleaseRef.name
     },
     { 
       colKey: 'spec.schedule.type', 
@@ -158,7 +164,15 @@ const HelmTestJobs: React.FC = () => {
   return (
     <div>
       <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between' }}>
-        <Button icon={<AddIcon />} onClick={() => setVisible(true)}>Create Test Job</Button>
+        <Button
+          icon={<AddIcon />}
+          onClick={() => {
+            setScheduleType('once');
+            setVisible(true);
+          }}
+        >
+          Create Test Job
+        </Button>
         <Button icon={<RefreshIcon />} variant="outline" onClick={loadJobs}>Refresh</Button>
       </div>
 
@@ -176,46 +190,52 @@ const HelmTestJobs: React.FC = () => {
         onConfirm={() => form.submit()}
         width={600}
       >
-        <Form form={form} onSubmit={handleSubmit} labelWidth={120}>
-          <Form.FormItem name="name" label="Name" rules={[{ required: true }]}>
-            <Input placeholder="Job name" />
-          </Form.FormItem>
-          <Form.FormItem name="namespace" label="Namespace" rules={[{ required: true }]}>
-            <Input placeholder="Namespace" defaultValue="default" />
-          </Form.FormItem>
-          <Form.FormItem name="release" label="Target Release" rules={[{ required: true }]}>
-            <Select placeholder="Select a release">
-              {releases.map((r: HelmRelease) => (
-                <Select.Option 
-                  key={`${r.metadata.namespace}/${r.metadata.name}`} 
-                  value={`${r.metadata.namespace}/${r.metadata.name}`} 
-                  label={`${r.metadata.namespace}/${r.metadata.name}`} 
-                />
-              ))}
-            </Select>
-          </Form.FormItem>
-          <Form.FormItem name="scheduleType" label="Schedule Type" initialData="once">
-            <Select>
-              <Select.Option value="once" label="Once" />
-              <Select.Option value="cron" label="Cron" />
-            </Select>
-          </Form.FormItem>
-          <Form.FormItem 
-            name="delay" 
-            label="Delay" 
-            help="Delay execution (e.g. 5m, 1h). Only for 'once' type."
-          >
-            <Input placeholder="e.g. 5m" />
-          </Form.FormItem>
-          <Form.FormItem 
-            name="cron" 
-            label="Cron Expression" 
-            help="Standard cron expression. Only for 'cron' type."
-          >
-            <Input placeholder="e.g. 0 2 * * *" />
-          </Form.FormItem>
-        </Form>
-      </Dialog>
+          <Form form={form} onSubmit={handleSubmit} labelWidth={120}>
+            <Form.FormItem name="name" label="Name" rules={[{ required: true }]}>
+              <Input placeholder="Job name" />
+            </Form.FormItem>
+            <Form.FormItem name="release" label="Target Release" rules={[{ required: true }]}>
+              <Select placeholder="Select a release">
+                {releases.map((r: HelmRelease) => (
+                  <Select.Option 
+                    key={r.metadata.name} 
+                    value={r.metadata.name} 
+                    label={r.metadata.name} 
+                  />
+                ))}
+              </Select>
+            </Form.FormItem>
+            <Form.FormItem name="scheduleType" label="Schedule Type" initialData="once">
+              <Select onChange={(v: unknown) => setScheduleType(v as 'once' | 'cron')}>
+                <Select.Option value="once" label="Once" />
+                <Select.Option value="cron" label="Cron" />
+              </Select>
+            </Form.FormItem>
+            {scheduleType === 'once' && (
+              <Form.FormItem
+                name="delay"
+                label="Delay"
+                help="Delay execution (e.g. 5m, 1h). Only for 'once' type."
+              >
+                <Input placeholder="e.g. 5m" />
+              </Form.FormItem>
+            )}
+            {scheduleType === 'cron' && (
+              <>
+                <Form.FormItem
+                  name="cron"
+                  label="Cron Expression"
+                  help="Standard cron expression. Only for 'cron' type."
+                >
+                  <Input placeholder="e.g. 0 2 * * *" />
+                </Form.FormItem>
+                <Form.FormItem name="timezone" label="Timezone" initialData="Asia/Shanghai">
+                  <Input placeholder="Asia/Shanghai" />
+                </Form.FormItem>
+              </>
+            )}
+          </Form>
+        </Dialog>
 
       <Drawer
         header={`Logs: ${currentJob?.metadata.name}`}
@@ -245,21 +265,37 @@ const HelmTestJobs: React.FC = () => {
                   <strong>{result.name}</strong>
                   <Tag theme={result.phase === 'Succeeded' ? 'success' : 'danger'}>{result.phase}</Tag>
                 </div>
-                <div>{result.message}</div>
-                <div style={{ fontSize: 12, color: 'var(--td-text-color-secondary)', marginTop: 4 }}>
-                  {new Date(result.startedAt).toLocaleString()} - {new Date(result.completedAt).toLocaleString()}
-                </div>
+                {result.logs && (
+                  <pre style={{ whiteSpace: 'pre-wrap', margin: 0 }}>{result.logs}</pre>
+                )}
+                {(result.startedAt || result.completedAt) && (
+                  <div style={{ fontSize: 12, color: 'var(--td-text-color-secondary)', marginTop: 4 }}>
+                    {result.startedAt ? new Date(result.startedAt).toLocaleString() : '-'} - {result.completedAt ? new Date(result.completedAt).toLocaleString() : '-'}
+                  </div>
+                )}
               </div>
             ))}
 
             <h3>Hook Results</h3>
-            {currentJob.status?.hookResults?.map((result, index) => (
-              <div key={index} style={{ marginBottom: 12, padding: 12, border: '1px solid var(--td-border-level-1-color)', borderRadius: 4 }}>
+            <h4>PreTest</h4>
+            {currentJob.status?.hookResults?.preTest?.map((result, index) => (
+              <div key={`pre-${index}`} style={{ marginBottom: 12, padding: 12, border: '1px solid var(--td-border-level-1-color)', borderRadius: 4 }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
                   <strong>{result.name}</strong>
                   <Tag theme={result.phase === 'Succeeded' ? 'success' : 'danger'}>{result.phase}</Tag>
                 </div>
-                <div>{result.message}</div>
+                {result.message && <div>{result.message}</div>}
+              </div>
+            ))}
+
+            <h4>PostTest</h4>
+            {currentJob.status?.hookResults?.postTest?.map((result, index) => (
+              <div key={`post-${index}`} style={{ marginBottom: 12, padding: 12, border: '1px solid var(--td-border-level-1-color)', borderRadius: 4 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
+                  <strong>{result.name}</strong>
+                  <Tag theme={result.phase === 'Succeeded' ? 'success' : 'danger'}>{result.phase}</Tag>
+                </div>
+                {result.message && <div>{result.message}</div>}
               </div>
             ))}
           </div>

@@ -33,8 +33,8 @@ const Dashboard: React.FC = () => {
       const releases = releasesRes.data;
       const jobs = jobsRes.data;
       
-      const succeededJobs = jobs.filter(j => j.status.phase === 'Succeeded').length;
-      const failedJobs = jobs.filter(j => j.status.phase === 'Failed').length;
+      const succeededJobs = jobs.filter((j) => j.status?.phase === 'Succeeded').length;
+      const failedJobs = jobs.filter((j) => j.status?.phase === 'Failed').length;
       const totalCompletedJobs = succeededJobs + failedJobs;
       
       setStats({
