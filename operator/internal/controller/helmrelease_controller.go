@@ -76,7 +76,13 @@ type HelmReleaseReconciler struct {
 //+kubebuilder:rbac:groups=steer.io,resources=helmreleases,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=steer.io,resources=helmreleases/status,verbs=get;update;patch
 //+kubebuilder:rbac:groups=steer.io,resources=helmreleases/finalizers,verbs=update
-//+kubebuilder:rbac:groups="",resources=namespaces,verbs=get;create
+//+kubebuilder:rbac:groups="",resources=namespaces,verbs=get;list;watch;create;update;patch
+// Helm (CLI) performs installs into arbitrary target namespaces and uses
+// Kubernetes APIs via the manager ServiceAccount.
+//+kubebuilder:rbac:groups="",resources=secrets;configmaps,verbs=get;list;watch;create;update;patch;delete
+//+kubebuilder:rbac:groups="",resources=serviceaccounts;services,verbs=get;list;watch;create;update;patch;delete
+//+kubebuilder:rbac:groups="",resources=pods,verbs=get;list;watch
+//+kubebuilder:rbac:groups=apps,resources=deployments;replicasets,verbs=get;list;watch;create;update;patch;delete
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
