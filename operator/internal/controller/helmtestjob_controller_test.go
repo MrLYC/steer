@@ -76,6 +76,13 @@ var _ = Describe("HelmTestJob Controller", func() {
 						},
 					}
 					Expect(k8sClient.Create(ctx, createHR)).To(Succeed())
+
+					// Mark HelmRelease as Installed so HelmTestJob can run helm test.
+					created := &steerv1alpha1.HelmRelease{}
+					Expect(k8sClient.Get(ctx, hrKey, created)).To(Succeed())
+					created.Status.Phase = steerv1alpha1.HelmReleasePhaseInstalled
+					created.Status.Message = ""
+					Expect(k8sClient.Status().Update(ctx, created)).To(Succeed())
 				} else {
 					Expect(hrErr).NotTo(HaveOccurred())
 				}

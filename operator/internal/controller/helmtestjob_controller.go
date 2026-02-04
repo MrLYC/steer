@@ -228,6 +228,26 @@ func (r *HelmTestJobReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 				return ctrl.Result{}, err
 			}
 
+			switch hr.Status.Phase {
+			case steerv1alpha1.HelmReleasePhaseInstalled:
+				// proceed
+			case steerv1alpha1.HelmReleasePhaseFailed:
+				err := fmt.Errorf("HelmRelease %q failed: %s", hr.Name, hr.Status.Message)
+				job.Status.Phase = steerv1alpha1.HelmTestJobPhaseFailed
+				job.Status.Message = err.Error()
+				job.Status.CompletionTime = &nowMeta
+				_ = r.Status().Update(ctx, &job)
+				return ctrl.Result{}, nil
+			default:
+				job.Status.Message = fmt.Sprintf(
+					"waiting for HelmRelease %q to be Installed (current phase: %q)",
+					hr.Name,
+					hr.Status.Phase,
+				)
+				_ = r.Status().Update(ctx, &job)
+				return ctrl.Result{RequeueAfter: 2 * time.Second}, nil
+			}
+
 			releaseNS := hr.Spec.Deployment.Namespace
 			if releaseNS == "" {
 				releaseNS = hr.Namespace
