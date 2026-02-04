@@ -1,6 +1,0 @@
-apiVersion: v2
-name: steer-test
-description: A tiny chart with Helm test hooks for Steer demos
-type: application
-version: 0.1.0
-appVersion: "0.1.0"

@@ -1,34 +1,206 @@
+{{- if .Values.rbac.create -}}
+---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: {{ include "steer.fullname" . }}
+  name: {{ include "steer.fullname" . }}-manager-role
   labels:
     {{- include "steer.labels" . | nindent 4 }}
 rules:
-  - apiGroups: ["steer.io"]
-    resources: ["helmreleases", "helmtestjobs"]
-    verbs: ["*"]
-  - apiGroups: [""]
-    resources: ["pods", "services", "configmaps", "secrets", "namespaces"]
-    verbs: ["*"]
-  - apiGroups: ["apps"]
-    resources: ["deployments", "statefulsets", "daemonsets"]
-    verbs: ["*"]
-  - apiGroups: ["batch"]
-    resources: ["jobs"]
-    verbs: ["*"]
+  - apiGroups:
+      - ""
+    resources:
+      - namespaces
+    verbs:
+      - get
+      - list
+      - watch
+      - create
+      - patch
+      - update
+  # Helm v3 stores releases as Secrets and needs to manage chart resources in
+  # arbitrary target namespaces (spec.deployment.namespace).
+  - apiGroups:
+      - ""
+    resources:
+      - secrets
+      - configmaps
+    verbs:
+      - create
+      - delete
+      - get
+      - list
+      - patch
+      - update
+      - watch
+  - apiGroups:
+      - ""
+    resources:
+      - serviceaccounts
+      - services
+    verbs:
+      - create
+      - delete
+      - get
+      - list
+      - patch
+      - update
+      - watch
+  - apiGroups:
+      - ""
+    resources:
+      - pods
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - apps
+    resources:
+      - deployments
+      - replicasets
+    verbs:
+      - create
+      - delete
+      - get
+      - list
+      - patch
+      - update
+      - watch
+  - apiGroups:
+      - batch
+    resources:
+      - jobs
+    verbs:
+      - create
+      - delete
+      - get
+      - list
+      - patch
+      - update
+      - watch
+  - apiGroups:
+      - steer.io
+    resources:
+      - helmreleases
+    verbs:
+      - create
+      - delete
+      - get
+      - list
+      - patch
+      - update
+      - watch
+  - apiGroups:
+      - steer.io
+    resources:
+      - helmreleases/finalizers
+    verbs:
+      - update
+  - apiGroups:
+      - steer.io
+    resources:
+      - helmreleases/status
+    verbs:
+      - get
+      - patch
+      - update
+  - apiGroups:
+      - steer.io
+    resources:
+      - helmtestjobs
+    verbs:
+      - create
+      - delete
+      - get
+      - list
+      - patch
+      - update
+      - watch
+  - apiGroups:
+      - steer.io
+    resources:
+      - helmtestjobs/finalizers
+    verbs:
+      - update
+  - apiGroups:
+      - steer.io
+    resources:
+      - helmtestjobs/status
+    verbs:
+      - get
+      - patch
+      - update
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
-  name: {{ include "steer.fullname" . }}
+  name: {{ include "steer.fullname" . }}-manager-rolebinding
   labels:
     {{- include "steer.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "steer.fullname" . }}-manager-role
 subjects:
   - kind: ServiceAccount
     name: {{ include "steer.serviceAccountName" . }}
     namespace: {{ .Release.Namespace }}
+---
+# permissions to do leader election.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "steer.fullname" . }}-leader-election-role
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "steer.labels" . | nindent 4 }}
+rules:
+  - apiGroups:
+      - ""
+    resources:
+      - configmaps
+    verbs:
+      - get
+      - list
+      - watch
+      - create
+      - update
+      - patch
+      - delete
+  - apiGroups:
+      - coordination.k8s.io
+    resources:
+      - leases
+    verbs:
+      - get
+      - list
+      - watch
+      - create
+      - update
+      - patch
+      - delete
+  - apiGroups:
+      - ""
+    resources:
+      - events
+    verbs:
+      - create
+      - patch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "steer.fullname" . }}-leader-election-rolebinding
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "steer.labels" . | nindent 4 }}
 roleRef:
-  kind: ClusterRole
-  name: {{ include "steer.fullname" . }}
   apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "steer.fullname" . }}-leader-election-role
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "steer.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+{{- end }}

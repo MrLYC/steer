@@ -29,7 +29,19 @@ const HelmReleases: React.FC = () => {
   const [releases, setReleases] = useState<HelmRelease[]>([]);
   const [loading, setLoading] = useState(true);
   const [visible, setVisible] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
   const [form] = Form.useForm();
+
+  const resetForm = () => {
+    const maybe = form as unknown as { resetFields?: unknown; reset?: unknown };
+    if (typeof maybe.resetFields === 'function') {
+      (maybe.resetFields as () => void)();
+      return;
+    }
+    if (typeof maybe.reset === 'function') {
+      (maybe.reset as () => void)();
+    }
+  };
 
   useEffect(() => {
     loadReleases();
@@ -66,6 +78,7 @@ const HelmReleases: React.FC = () => {
 
   const handleSubmit = async (context: any) => {
     if (context.validateResult === true) {
+      setSubmitting(true);
       const values = form.getFieldsValue(true);
       const targetNamespace = values.targetNamespace;
       const createNamespace = values.createNamespace !== false;
@@ -99,11 +112,13 @@ const HelmReleases: React.FC = () => {
       try {
         await helmReleaseApi.create(newRelease);
         MessagePlugin.success('Release created successfully');
+        resetForm();
         setVisible(false);
-        form.reset();
-        loadReleases();
+        await loadReleases();
       } catch (error) {
         MessagePlugin.error(getErrorMessage(error, 'Failed to create release'));
+      } finally {
+        setSubmitting(false);
       }
     }
   };
@@ -172,8 +187,13 @@ const HelmReleases: React.FC = () => {
       <Dialog
         header="Create Helm Release"
         visible={visible}
-        onClose={() => setVisible(false)}
+        onClose={() => {
+          setVisible(false);
+          resetForm();
+          setSubmitting(false);
+        }}
         onConfirm={() => form.submit()}
+        confirmLoading={submitting}
         width={600}
       >
         <Form form={form} onSubmit={handleSubmit} labelWidth={120}>

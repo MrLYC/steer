@@ -1,6 +1,6 @@
 apiVersion: v2
 name: steer
-description: A Helm chart for Steer - The Helm Test Operator
+description: Helm chart for Steer (controller-manager) with optional embedded web
 type: application
 version: 0.1.0
 appVersion: "0.1.0"

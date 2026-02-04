@@ -7,8 +7,6 @@ Expand the name of the chart.
 
 {{/*
 Create a default fully qualified app name.
-We truncate at 63 chars because some Kubernetes name fields are limited to this (by the DNS naming spec).
-If release name contains chart name it will be used as a full name.
 */}}
 {{- define "steer.fullname" -}}
 {{- if .Values.fullnameOverride }}
@@ -24,7 +22,7 @@ If release name contains chart name it will be used as a full name.
 {{- end }}
 
 {{/*
-Create chart name and version as used by the chart label.
+Chart name and version.
 */}}
 {{- define "steer.chart" -}}
 {{- printf "%s-%s" .Chart.Name .Chart.Version | replace "+" "_" | trunc 63 | trimSuffix "-" }}
@@ -51,12 +49,36 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
 
 {{/*
-Create the name of the service account to use
+Service account name
 */}}
 {{- define "steer.serviceAccountName" -}}
 {{- if .Values.serviceAccount.create }}
 {{- default (include "steer.fullname" .) .Values.serviceAccount.name }}
 {{- else }}
 {{- default "default" .Values.serviceAccount.name }}
+{{- end }}
+{{- end }}
+
+{{/*
+Compute manager --metrics-bind-address
+*/}}
+{{- define "steer.metricsBindAddress" -}}
+{{- if .Values.metrics.bindAddress }}
+{{- .Values.metrics.bindAddress -}}
+{{- else if .Values.metrics.listenOnAllInterfaces }}
+{{- printf "0.0.0.0:%d" (int .Values.metrics.port) -}}
+{{- else }}
+{{- printf "127.0.0.1:%d" (int .Values.metrics.port) -}}
+{{- end }}
+{{- end }}
+
+{{/*
+Compute metrics Service port
+*/}}
+{{- define "steer.metricsServicePort" -}}
+{{- if .Values.metrics.service.port }}
+{{- .Values.metrics.service.port -}}
+{{- else }}
+{{- .Values.metrics.port -}}
 {{- end }}
 {{- end }}

@@ -2,9 +2,9 @@
 apiVersion: v1
 kind: Service
 metadata:
-  name: {{ include "steer-operator.fullname" . }}-web
+  name: {{ include "steer.fullname" . }}-web
   labels:
-    {{- include "steer-operator.labels" . | nindent 4 }}
+    {{- include "steer.labels" . | nindent 4 }}
   {{- with .Values.web.service.annotations }}
   annotations:
     {{- toYaml . | nindent 4 }}
@@ -17,5 +17,5 @@ spec:
       protocol: TCP
       name: http
   selector:
-    {{- include "steer-operator.selectorLabels" . | nindent 4 }}
+    {{- include "steer.selectorLabels" . | nindent 4 }}
 {{- end }}

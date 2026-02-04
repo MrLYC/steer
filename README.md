@@ -33,18 +33,19 @@ kubectl -n system exec -it deploy/controller-manager -- /manager --help
 访问方式（示例：port-forward）：
 
 ```bash
-kubectl -n steer-operator-system port-forward svc/steer-operator-steer-web 8080:80
+# Helm 安装且 releaseName=steer 时，web Service 默认为：steer-web
+kubectl -n steer-system port-forward svc/steer-web 8080:80
 ```
 
 然后访问：`http://localhost:8080/`（UI）和 `http://localhost:8080/api/v1/...`（API）。
 
 ### Helm 安装（推荐本地/演示）
 
-仓库提供了一个 Helm chart：`charts/steer-operator`，用于部署 operator/manager（而不是早期演示用的 `backend/`）。
+仓库提供了一个 Helm chart：`charts/steer`，用于部署 operator/manager（而不是早期演示用的 `backend/`）。
 
 ```bash
-helm upgrade --install steer-operator charts/steer-operator \
-  -n steer-operator-system --create-namespace \
+helm upgrade --install steer charts/steer \
+  -n steer-system --create-namespace \
   --set image.repository=<your-registry>/steer-operator \
   --set image.tag=<tag>
 ```
@@ -57,8 +58,8 @@ helm upgrade --install steer-operator charts/steer-operator \
 - 如需在集群内暴露（请自行配合 NetworkPolicy 等）：
 
 ```bash
-helm upgrade --install steer-operator charts/steer-operator \
-  -n steer-operator-system --create-namespace \
+helm upgrade --install steer charts/steer \
+  -n steer-system --create-namespace \
   --set image.repository=<your-registry>/steer-operator \
   --set image.tag=<tag> \
   --set metrics.listenOnAllInterfaces=true \

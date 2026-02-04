@@ -1401,50 +1401,42 @@ const getTagTheme = (phase: string) => {
 charts/steer/
 ├── Chart.yaml
 ├── values.yaml
-├── templates/
-│   ├── deployment.yaml
-│   ├── service.yaml
-│   ├── rbac.yaml
-│   ├── crd.yaml
-│   └── ingress.yaml
-└── README.md
+├── crds/
+│   ├── steer.io_helmreleases.yaml
+│   └── steer.io_helmtestjobs.yaml
+└── templates/
+    ├── _helpers.tpl
+    ├── deployment.yaml
+    ├── rbac.yaml
+    ├── service-web.yaml
+    └── service-metrics.yaml
 ```
 
 ### values.yaml 示例
 
 ```yaml
-# Operator 配置
-operator:
-  replicaCount: 1
-  image:
-    repository: steer/operator
-    tag: latest
-    pullPolicy: IfNotPresent
-  resources:
-    limits:
-      cpu: 500m
-      memory: 512Mi
-    requests:
-      cpu: 100m
-      memory: 128Mi
+# manager 镜像
+image:
+  repository: docker.io/mrlyc/steer-operator
+  tag: "sha-afb4787"
+  pullPolicy: IfNotPresent
 
-# Web 配置
+# Web（默认启用）
 web:
   enabled: true
-  replicaCount: 1
-  image:
-    repository: steer/web
-    tag: latest
-    pullPolicy: IfNotPresent
+  addr: ":8082"
+  staticDir: "/static"
   service:
     type: ClusterIP
-    port: 8080
-  ingress:
     enabled: true
-    className: nginx
-    host: steer.example.com
-    tls:
-      enabled: false
+    port: 80
+
+# Metrics（默认仅监听 127.0.0.1）
+metrics:
+  port: 8080
+  listenOnAllInterfaces: false
+  service:
+    enabled: false
 
 # RBAC 配置
 rbac:
@@ -1452,22 +1444,20 @@ rbac:
 
 serviceAccount:
   create: true
-  name: steer-operator
+  name: ""
 ```
 
 ### 部署命令
 
 ```bash
 # 构建 Docker 镜像
-docker build -t steer/operator:latest -f Dockerfile.operator .
-docker build -t steer/web:latest -f Dockerfile.web .
+docker build -t <your-registry>/steer-operator:tag -f operator/Dockerfile .
 
 # 推送镜像
-docker push steer/operator:latest
-docker push steer/web:latest
+docker push <your-registry>/steer-operator:tag
 
 # 从本地 Git 仓库安装
-helm install steer ./charts/steer \
+helm upgrade --install steer ./charts/steer \
   --namespace steer-system \
   --create-namespace
 
@@ -1477,8 +1467,7 @@ helm install steer oci://ghcr.io/yourusername/steer/charts/steer \
   --create-namespace
 
 # 升级
-helm upgrade steer ./charts/steer \
-  --namespace steer-system
+helm upgrade steer ./charts/steer --namespace steer-system
 
 # 卸载
 helm uninstall steer --namespace steer-system

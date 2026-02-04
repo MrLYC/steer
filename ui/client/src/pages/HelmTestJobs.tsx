@@ -8,10 +8,22 @@ const HelmTestJobs: React.FC = () => {
   const [releases, setReleases] = useState<HelmRelease[]>([]);
   const [loading, setLoading] = useState(true);
   const [visible, setVisible] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
   const [logVisible, setLogVisible] = useState(false);
   const [currentJob, setCurrentJob] = useState<HelmTestJob | null>(null);
   const [form] = Form.useForm();
   const [scheduleType, setScheduleType] = useState<'once' | 'cron'>('once');
+
+  const resetForm = () => {
+    const maybe = form as unknown as { resetFields?: unknown; reset?: unknown };
+    if (typeof maybe.resetFields === 'function') {
+      (maybe.resetFields as () => void)();
+      return;
+    }
+    if (typeof maybe.reset === 'function') {
+      (maybe.reset as () => void)();
+    }
+  };
 
   useEffect(() => {
     loadJobs();
@@ -58,6 +70,7 @@ const HelmTestJobs: React.FC = () => {
 
   const handleSubmit = async (context: any) => {
     if (context.validateResult === true) {
+      setSubmitting(true);
       const values = form.getFieldsValue(true);
 
       const schedule: HelmTestJob['spec']['schedule'] = {
@@ -94,11 +107,14 @@ const HelmTestJobs: React.FC = () => {
       try {
         await helmTestJobApi.create(newJob);
         MessagePlugin.success('Job created successfully');
+        resetForm();
+        setScheduleType('once');
         setVisible(false);
-        form.reset();
-        loadJobs();
+        await loadJobs();
       } catch (error) {
         MessagePlugin.error('Failed to create job');
+      } finally {
+        setSubmitting(false);
       }
     }
   };
@@ -186,8 +202,14 @@ const HelmTestJobs: React.FC = () => {
       <Dialog
         header="Create Test Job"
         visible={visible}
-        onClose={() => setVisible(false)}
+        onClose={() => {
+          setVisible(false);
+          resetForm();
+          setScheduleType('once');
+          setSubmitting(false);
+        }}
         onConfirm={() => form.submit()}
+        confirmLoading={submitting}
         width={600}
       >
           <Form form={form} onSubmit={handleSubmit} labelWidth={120}>

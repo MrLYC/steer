@@ -43,12 +43,14 @@ make deploy IMG=<some-registry>/steer-operator:tag
 
 #### Embedded Web (testing only)
 
-默认部署清单会以 `--web=:8082` 启动 Web Server，并在 `operator/config/manager/service.yaml` 提供 `steer-web` Service（kustomize 默认会加 namePrefix，最终为 `steer-operator-steer-web`）。
+默认部署清单会以 `--web=:8082` 启动 Web Server，并在 `operator/config/manager/service.yaml` 提供 `steer-web` Service。
+
+Kustomize 的默认 `namespace` / `namePrefix` 定义在 `operator/config/default/kustomization.yaml`，最终的 Service 名称会叠加 `namePrefix`。
 
 本地访问（port-forward）：
 
 ```sh
-kubectl -n steer-operator-system port-forward svc/steer-operator-steer-web 8080:80
+kubectl -n <namespace> port-forward svc/<namePrefix>steer-web 8080:80
 ```
 
 访问：
@@ -58,25 +60,30 @@ kubectl -n steer-operator-system port-forward svc/steer-operator-steer-web 8080:
 
 ## Helm 安装（推荐本地/演示）
 
-仓库提供 Helm chart：`charts/steer-operator`，用于部署 operator/manager（controller-manager）。
+仓库提供 Helm chart：`charts/steer`，用于部署 operator/manager（controller-manager）。
 
 ```sh
-helm upgrade --install steer-operator ../../charts/steer-operator \
-  -n steer-operator-system --create-namespace \
+helm upgrade --install steer ../../charts/steer \
+  -n steer-system --create-namespace \
   --set image.repository=<your-registry>/steer-operator \
   --set image.tag=<tag>
 ```
 
+默认会创建 `{{ fullname }}-web` Service。
+
+- 当 releaseName=steer 时：Service 为 `steer-web`
+- 其它 releaseName（例如 `foo`）：Service 为 `foo-steer-web`
+
 ### Metrics（不使用 kube-rbac-proxy）
 
-`charts/steer-operator` **不包含 kube-rbac-proxy**。metrics 由 manager 直接提供：
+`charts/steer` **不包含 kube-rbac-proxy**。metrics 由 manager 直接提供：
 
 - 默认只监听 `127.0.0.1:8080`（集群内不可直接访问，最安全）
 - 如需在集群内暴露（请自行配合 NetworkPolicy / ServiceMonitor 等）：
 
 ```sh
-helm upgrade --install steer-operator ../../charts/steer-operator \
-  -n steer-operator-system --create-namespace \
+helm upgrade --install steer ../../charts/steer \
+  -n steer-system --create-namespace \
   --set image.repository=<your-registry>/steer-operator \
   --set image.tag=<tag> \
   --set metrics.listenOnAllInterfaces=true \
