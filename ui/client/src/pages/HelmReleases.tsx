@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Table, Button, Tag, Space, DialogPlugin, Dialog, Form, Input, Textarea, MessagePlugin, Checkbox } from 'tdesign-react';
+import { Table, Button, Tag, DialogPlugin, Dialog, Form, Input, Textarea, MessagePlugin, Checkbox } from 'tdesign-react';
 import { AddIcon, RefreshIcon, DeleteIcon } from 'tdesign-icons-react';
 import { helmReleaseApi, HelmRelease } from '../api/client';
 
@@ -174,6 +174,7 @@ const HelmReleases: React.FC = () => {
         visible={visible}
         onClose={() => setVisible(false)}
         onConfirm={() => form.submit()}
+        width={600}
       >
         <Form form={form} onSubmit={handleSubmit} labelWidth={120}>
           <Form.FormItem name="name" label="Name" rules={[{ required: true }]}>
