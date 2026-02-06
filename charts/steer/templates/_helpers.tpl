@@ -22,21 +22,11 @@ Create a default fully qualified app name.
 {{- end }}
 
 {{/*
-Chart name and version.
-*/}}
-{{- define "steer.chart" -}}
-{{- printf "%s-%s" .Chart.Name .Chart.Version | replace "+" "_" | trunc 63 | trimSuffix "-" }}
-{{- end }}
-
-{{/*
 Common labels
 */}}
 {{- define "steer.labels" -}}
 helm.sh/chart: {{ include "steer.chart" . }}
 {{ include "steer.selectorLabels" . }}
-{{- if .Chart.AppVersion }}
-app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
-{{- end }}
 app.kubernetes.io/managed-by: {{ .Release.Service }}
 {{- end }}
 
@@ -49,36 +39,31 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
 
 {{/*
-Service account name
+Create chart name and version as used by the chart label.
 */}}
-{{- define "steer.serviceAccountName" -}}
-{{- if .Values.serviceAccount.create }}
-{{- default (include "steer.fullname" .) .Values.serviceAccount.name }}
+{{- define "steer.chart" -}}
+{{- printf "%s-%s" .Chart.Name .Chart.Version | replace "+" "_" | trunc 63 | trimSuffix "-" }}
+{{- end }}
+
+{{/*
+The namespace where history ConfigMaps are stored.
+Defaults to the release namespace.
+*/}}
+{{- define "steer.historyNamespace" -}}
+{{- if .Values.history.namespace }}
+{{- .Values.history.namespace }}
 {{- else }}
-{{- default "default" .Values.serviceAccount.name }}
+{{- .Release.Namespace }}
 {{- end }}
 {{- end }}
 
 {{/*
-Compute manager --metrics-bind-address
+Namespace selector label key and value.
 */}}
-{{- define "steer.metricsBindAddress" -}}
-{{- if .Values.metrics.bindAddress }}
-{{- .Values.metrics.bindAddress -}}
-{{- else if .Values.metrics.listenOnAllInterfaces }}
-{{- printf "0.0.0.0:%d" (int .Values.metrics.port) -}}
-{{- else }}
-{{- printf "127.0.0.1:%d" (int .Values.metrics.port) -}}
-{{- end }}
+{{- define "steer.namespaceSelectorKey" -}}
+{{- .Values.namespaceSelector.key }}
 {{- end }}
 
-{{/*
-Compute metrics Service port
-*/}}
-{{- define "steer.metricsServicePort" -}}
-{{- if .Values.metrics.service.port }}
-{{- .Values.metrics.service.port -}}
-{{- else }}
-{{- .Values.metrics.port -}}
-{{- end }}
+{{- define "steer.namespaceSelectorValue" -}}
+{{- .Values.namespaceSelector.value }}
 {{- end }}

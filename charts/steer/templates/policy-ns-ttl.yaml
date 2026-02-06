@@ -1,0 +1,53 @@
+{{/*
+# ============================================================================
+# Policy: steer-ns-ttl
+# ============================================================================
+# Purpose:
+#   Automatically add a cleanup.kyverno.io/ttl label to namespaces that match
+#   the steer selector label. This ensures that test namespaces are cleaned up
+#   after a configurable TTL (default: 2h), preventing resource over-consumption.
+#
+# How it works:
+#   1. A namespace is created with the label steer.io/managed=true
+#   2. This ClusterPolicy mutates the namespace on CREATE to add the TTL label
+#   3. Kyverno's built-in TTL cleanup controller deletes the namespace
+#      after the TTL expires
+#
+# Dependencies:
+#   - Kyverno must be installed with the cleanup controller enabled
+#   - Kyverno needs permission to delete Namespace resources
+# ============================================================================
+*/}}
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: {{ include "steer.fullname" . }}-ns-ttl
+  labels:
+    {{- include "steer.labels" . | nindent 4 }}
+  annotations:
+    policies.kyverno.io/title: "Add TTL to Steer-managed Namespaces"
+    policies.kyverno.io/category: "Steer Lifecycle"
+    policies.kyverno.io/severity: "medium"
+    policies.kyverno.io/subject: "Namespace"
+    policies.kyverno.io/description: >-
+      Automatically adds a cleanup.kyverno.io/ttl label to namespaces managed
+      by Steer, ensuring they are deleted after the configured TTL
+      ({{ .Values.namespaceTTL }}).
+spec:
+  rules:
+    - name: add-ns-ttl
+      match:
+        any:
+          - resources:
+              kinds:
+                - Namespace
+              operations:
+                - CREATE
+              selector:
+                matchLabels:
+                  {{ include "steer.namespaceSelectorKey" . }}: {{ include "steer.namespaceSelectorValue" . | quote }}
+      mutate:
+        patchStrategicMerge:
+          metadata:
+            labels:
+              cleanup.kyverno.io/ttl: {{ .Values.namespaceTTL | quote }}

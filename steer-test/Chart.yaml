@@ -1,6 +1,0 @@
-apiVersion: v2
-name: steer-test
-description: A simple chart for testing Steer and helm test hooks
-type: application
-version: 0.1.0
-appVersion: "0.1.0"

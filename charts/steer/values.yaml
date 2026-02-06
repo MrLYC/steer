@@ -1,67 +1,82 @@
-image:
-  repository: docker.io/mrlyc/steer-operator
-  pullPolicy: IfNotPresent
-  # Overrides the image tag whose default is the chart appVersion.
-  tag: "sha-afb4787"
+# ============================================================================
+# Steer - Helm Test Guardrail Policies
+# ============================================================================
+# This chart installs Kyverno ClusterPolicies that provide guardrails for
+# Helm test workflows. It manages namespace lifecycle automatically:
+#
+# 1. Auto-delete namespaces after a configurable TTL (default: 2h)
+# 2. Delete namespaces when Helm test hook resources are cleaned up
+# 3. Record test history as ConfigMaps in the steer namespace
+# 4. Auto-cleanup history ConfigMaps after a configurable retention period
+#
+# All policies target namespaces matching a specific label selector.
+# ============================================================================
 
-imagePullSecrets: []
-nameOverride: ""
-fullnameOverride: ""
+# -- The label key used to identify namespaces managed by steer.
+# Namespaces with this label set to "true" will be subject to steer policies.
+namespaceSelector:
+  key: "steer.io/managed"
+  value: "true"
 
-serviceAccount:
-  create: true
-  annotations: {}
-  name: ""
+# -- Namespace TTL configuration.
+# Managed namespaces will be automatically deleted after this duration.
+namespaceTTL: "2h"
 
+# -- Whether to enable namespace cleanup when Helm test hook resources are deleted.
+# When a Pod/Job with the annotation `helm.sh/hook: test` (or `test-success`)
+# is deleted from a managed namespace, that namespace will be scheduled for deletion.
+cleanupOnTestComplete:
+  enabled: true
+
+# -- Test history recording configuration.
+history:
+  # -- Whether to enable test history recording.
+  enabled: true
+  # -- The namespace where history ConfigMaps are stored.
+  # Defaults to the release namespace.
+  namespace: ""
+  # -- TTL for history ConfigMaps. They will be auto-deleted after this duration.
+  ttl: "24h"
+  # -- Resource types to record in the history ConfigMap.
+  # Each entry is a Kubernetes API path segment used to query the resource list.
+  # The key in the resulting ConfigMap data will be the resource kind.
+  resources:
+    - group: ""
+      version: "v1"
+      resource: "pods"
+      kind: "Pod"
+    - group: "apps"
+      version: "v1"
+      resource: "deployments"
+      kind: "Deployment"
+    - group: "apps"
+      version: "v1"
+      resource: "statefulsets"
+      kind: "StatefulSet"
+    - group: "apps"
+      version: "v1"
+      resource: "daemonsets"
+      kind: "DaemonSet"
+    - group: "apps"
+      version: "v1"
+      resource: "replicasets"
+      kind: "ReplicaSet"
+    - group: "batch"
+      version: "v1"
+      resource: "jobs"
+      kind: "Job"
+    - group: "batch"
+      version: "v1"
+      resource: "cronjobs"
+      kind: "CronJob"
+
+# -- Extra RBAC permissions for Kyverno to manage resources.
+# Steer will create ClusterRoles granting Kyverno the permissions it needs.
 rbac:
-  create: true
-
-podAnnotations: {}
-
-podSecurityContext: {}
-  # fsGroup: 2000
-
-securityContext:
-  allowPrivilegeEscalation: false
-  capabilities:
-    drop:
-      - ALL
-
-resources: {}
-
-nodeSelector: {}
-tolerations: []
-affinity: {}
-
-leaderElection:
   enabled: true
 
-healthProbe:
-  bindAddress: ":8081"
-
-metrics:
-  # metrics-bind-address is computed as:
-  # - 127.0.0.1:<port> by default
-  # - 0.0.0.0:<port> if listenOnAllInterfaces=true
-  # - bindAddress if non-empty (overrides both)
-  port: 8080
-  listenOnAllInterfaces: false
-  bindAddress: ""
-  secure: false
-  enableHTTP2: false
-  service:
-    enabled: false
-    type: ClusterIP
-    # If 0, defaults to metrics.port
-    port: 0
-    annotations: {}
-
-web:
-  enabled: true
-  addr: ":8082"
-  staticDir: "/static"
-  service:
-    enabled: true
-    type: ClusterIP
-    port: 80
-    annotations: {}
+# -- Kyverno subchart configuration.
+# Set kyverno.enabled to true to deploy Kyverno as a subchart.
+# If you already have Kyverno installed in your cluster, leave this disabled.
+kyverno:
+  enabled: false

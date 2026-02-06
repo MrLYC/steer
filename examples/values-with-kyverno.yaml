@@ -1,0 +1,15 @@
+# Example: Deploy Steer with Kyverno as a subchart
+# Usage:
+#   helm install steer charts/steer -n steer -f examples/values-with-kyverno.yaml --create-namespace
+
+namespaceTTL: "2h"
+
+cleanupOnTestComplete:
+  enabled: true
+
+history:
+  enabled: true
+  ttl: "24h"
+
+kyverno:
+  enabled: true

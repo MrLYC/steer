@@ -1,206 +1,68 @@
-{{- if .Values.rbac.create -}}
+{{/*
+# ============================================================================
+# RBAC: Kyverno Permissions for Steer Policies
+# ============================================================================
+# Purpose:
+#   Grant Kyverno the necessary permissions to:
+#   1. Delete Namespaces (for TTL cleanup)
+#   2. Read workload resources in namespaces (for history recording)
+#   3. Create/update ConfigMaps in the history namespace (for history recording)
+#   4. Mutate Namespaces (for cleanup-on-test-complete)
+#
+# Notes:
+#   - These ClusterRoles follow Kyverno's labeling convention so that
+#     Kyverno's controllers can aggregate them automatically
+#   - The background controller needs permissions for generate and
+#     mutate existing rules
+# ============================================================================
+*/}}
+{{- if .Values.rbac.enabled }}
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: {{ include "steer.fullname" . }}-manager-role
+  name: {{ include "steer.fullname" . }}-kyverno-ns
   labels:
     {{- include "steer.labels" . | nindent 4 }}
+    app.kubernetes.io/component: background-controller
+    app.kubernetes.io/instance: kyverno
+    app.kubernetes.io/part-of: kyverno
 rules:
-  - apiGroups:
-      - ""
-    resources:
-      - namespaces
-    verbs:
-      - get
-      - list
-      - watch
-      - create
-      - patch
-      - update
-  # Helm v3 stores releases as Secrets and needs to manage chart resources in
-  # arbitrary target namespaces (spec.deployment.namespace).
-  - apiGroups:
-      - ""
-    resources:
-      - secrets
-      - configmaps
-    verbs:
-      - create
-      - delete
-      - get
-      - list
-      - patch
-      - update
-      - watch
-  - apiGroups:
-      - ""
-    resources:
-      - serviceaccounts
-      - services
-    verbs:
-      - create
-      - delete
-      - get
-      - list
-      - patch
-      - update
-      - watch
-  - apiGroups:
-      - ""
-    resources:
-      - pods
-    verbs:
-      - get
-      - list
-      - watch
-  - apiGroups:
-      - apps
-    resources:
-      - deployments
-      - replicasets
-    verbs:
-      - create
-      - delete
-      - get
-      - list
-      - patch
-      - update
-      - watch
-  - apiGroups:
-      - batch
-    resources:
-      - jobs
-    verbs:
-      - create
-      - delete
-      - get
-      - list
-      - patch
-      - update
-      - watch
-  - apiGroups:
-      - steer.io
-    resources:
-      - helmreleases
-    verbs:
-      - create
-      - delete
-      - get
-      - list
-      - patch
-      - update
-      - watch
-  - apiGroups:
-      - steer.io
-    resources:
-      - helmreleases/finalizers
-    verbs:
-      - update
-  - apiGroups:
-      - steer.io
-    resources:
-      - helmreleases/status
-    verbs:
-      - get
-      - patch
-      - update
-  - apiGroups:
-      - steer.io
-    resources:
-      - helmtestjobs
-    verbs:
-      - create
-      - delete
-      - get
-      - list
-      - patch
-      - update
-      - watch
-  - apiGroups:
-      - steer.io
-    resources:
-      - helmtestjobs/finalizers
-    verbs:
-      - update
-  - apiGroups:
-      - steer.io
-    resources:
-      - helmtestjobs/status
-    verbs:
-      - get
-      - patch
-      - update
+  - apiGroups: [""]
+    resources: ["namespaces"]
+    verbs: ["get", "list", "watch", "update", "patch", "delete"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRoleBinding
+kind: ClusterRole
 metadata:
-  name: {{ include "steer.fullname" . }}-manager-rolebinding
+  name: {{ include "steer.fullname" . }}-kyverno-workloads
   labels:
     {{- include "steer.labels" . | nindent 4 }}
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: ClusterRole
-  name: {{ include "steer.fullname" . }}-manager-role
-subjects:
-  - kind: ServiceAccount
-    name: {{ include "steer.serviceAccountName" . }}
-    namespace: {{ .Release.Namespace }}
----
-# permissions to do leader election.
-apiVersion: rbac.authorization.k8s.io/v1
-kind: Role
-metadata:
-  name: {{ include "steer.fullname" . }}-leader-election-role
-  namespace: {{ .Release.Namespace }}
-  labels:
-    {{- include "steer.labels" . | nindent 4 }}
+    app.kubernetes.io/component: background-controller
+    app.kubernetes.io/instance: kyverno
+    app.kubernetes.io/part-of: kyverno
 rules:
-  - apiGroups:
-      - ""
-    resources:
-      - configmaps
-    verbs:
-      - get
-      - list
-      - watch
-      - create
-      - update
-      - patch
-      - delete
-  - apiGroups:
-      - coordination.k8s.io
-    resources:
-      - leases
-    verbs:
-      - get
-      - list
-      - watch
-      - create
-      - update
-      - patch
-      - delete
-  - apiGroups:
-      - ""
-    resources:
-      - events
-    verbs:
-      - create
-      - patch
+  - apiGroups: [""]
+    resources: ["pods", "services", "configmaps"]
+    verbs: ["get", "list", "watch", "create", "update", "patch"]
+  - apiGroups: ["apps"]
+    resources: ["deployments", "statefulsets", "daemonsets", "replicasets"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["batch"]
+    resources: ["jobs", "cronjobs"]
+    verbs: ["get", "list", "watch"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
-kind: RoleBinding
+kind: ClusterRole
 metadata:
-  name: {{ include "steer.fullname" . }}-leader-election-rolebinding
-  namespace: {{ .Release.Namespace }}
+  name: {{ include "steer.fullname" . }}-kyverno-cleanup
   labels:
     {{- include "steer.labels" . | nindent 4 }}
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: Role
-  name: {{ include "steer.fullname" . }}-leader-election-role
-subjects:
-  - kind: ServiceAccount
-    name: {{ include "steer.serviceAccountName" . }}
-    namespace: {{ .Release.Namespace }}
+    app.kubernetes.io/component: cleanup-controller
+    app.kubernetes.io/instance: kyverno
+    app.kubernetes.io/part-of: kyverno
+rules:
+  - apiGroups: [""]
+    resources: ["namespaces"]
+    verbs: ["get", "list", "watch", "delete"]
 {{- end }}

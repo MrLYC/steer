@@ -1,0 +1,70 @@
+{{/*
+# ============================================================================
+# Policy: steer-cleanup-on-test-complete
+# ============================================================================
+# Purpose:
+#   When Helm test hook resources (Pods with helm.sh/hook: test or
+#   test-success annotation) are deleted from a steer-managed namespace,
+#   mark that namespace for immediate cleanup by updating its TTL label.
+#
+# How it works:
+#   1. Helm test creates Pods/Jobs with annotation helm.sh/hook: test
+#   2. When `helm test` completes, the user (or helm) deletes these resources
+#   3. This policy detects the DELETE event on such Pods
+#   4. It mutates the parent namespace to set a short TTL (5s), triggering
+#      Kyverno's cleanup controller to delete the namespace shortly after
+#
+# Notes:
+#   - Uses "mutate existing" to modify the Namespace (a different resource
+#     than the trigger Pod)
+#   - The precondition checks that the deleted Pod has the helm test hook
+#     annotation and belongs to a steer-managed namespace
+# ============================================================================
+*/}}
+{{- if .Values.cleanupOnTestComplete.enabled }}
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: {{ include "steer.fullname" . }}-cleanup-on-test-complete
+  labels:
+    {{- include "steer.labels" . | nindent 4 }}
+  annotations:
+    policies.kyverno.io/title: "Cleanup Namespace on Helm Test Completion"
+    policies.kyverno.io/category: "Steer Lifecycle"
+    policies.kyverno.io/severity: "medium"
+    policies.kyverno.io/subject: "Namespace, Pod"
+    policies.kyverno.io/description: >-
+      When Helm test hook Pods are deleted from a steer-managed namespace,
+      this policy marks the namespace for immediate cleanup.
+spec:
+  rules:
+    - name: mark-ns-for-cleanup
+      match:
+        any:
+          - resources:
+              kinds:
+                - Pod
+              operations:
+                - DELETE
+              namespaceSelector:
+                matchLabels:
+                  {{ include "steer.namespaceSelectorKey" . }}: {{ include "steer.namespaceSelectorValue" . | quote }}
+      preconditions:
+        all:
+          - key: "{{`{{ request.oldObject.metadata.annotations.\"helm.sh/hook\" || '' }}`}}"
+            operator: AnyIn
+            value:
+              - test
+              - test-success
+              - "test,before-hook-creation"
+              - "test-success,before-hook-creation"
+      mutate:
+        targets:
+          - apiVersion: v1
+            kind: Namespace
+            name: "{{`{{ request.oldObject.metadata.namespace }}`}}"
+        patchStrategicMerge:
+          metadata:
+            labels:
+              cleanup.kyverno.io/ttl: "5s"
+{{- end }}

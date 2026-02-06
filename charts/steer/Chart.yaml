@@ -1,13 +1,25 @@
 apiVersion: v2
 name: steer
-description: Helm chart for Steer (controller-manager) with optional embedded web
+description: >-
+  A Helm chart that provides guardrail policies for Helm test workflows.
+  It leverages Kyverno ClusterPolicies to automate namespace lifecycle management,
+  including TTL-based cleanup, test-completion-driven deletion, and test history recording.
 type: application
 version: 0.1.0
 appVersion: "0.1.0"
 keywords:
-  - helm
-  - operator
-  - testing
-  - kubernetes
+  - helm-test
+  - kyverno
+  - namespace-lifecycle
+  - cleanup
+  - policy
+home: https://github.com/steer
+sources:
+  - https://github.com/steer
 maintainers:
-  - name: steer-team
+  - name: steer
+dependencies:
+  - name: kyverno
+    version: "3.x.x"
+    repository: https://kyverno.github.io/kyverno/
+    condition: kyverno.enabled

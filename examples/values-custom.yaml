@@ -1,0 +1,63 @@
+# Example: Custom configuration with external Kyverno
+# Usage:
+#   helm install steer charts/steer -n steer -f examples/values-custom.yaml --create-namespace
+
+# Use a custom label selector for managed namespaces
+namespaceSelector:
+  key: "team.example.com/test-env"
+  value: "true"
+
+# Extend namespace TTL to 4 hours
+namespaceTTL: "4h"
+
+cleanupOnTestComplete:
+  enabled: true
+
+history:
+  enabled: true
+  # Store history in a dedicated namespace
+  namespace: "steer-history"
+  # Keep history for 7 days
+  ttl: "168h"
+  # Record additional resource types
+  resources:
+    - group: ""
+      version: "v1"
+      resource: "pods"
+      kind: "Pod"
+    - group: ""
+      version: "v1"
+      resource: "services"
+      kind: "Service"
+    - group: "apps"
+      version: "v1"
+      resource: "deployments"
+      kind: "Deployment"
+    - group: "apps"
+      version: "v1"
+      resource: "statefulsets"
+      kind: "StatefulSet"
+    - group: "apps"
+      version: "v1"
+      resource: "daemonsets"
+      kind: "DaemonSet"
+    - group: "apps"
+      version: "v1"
+      resource: "replicasets"
+      kind: "ReplicaSet"
+    - group: "batch"
+      version: "v1"
+      resource: "jobs"
+      kind: "Job"
+    - group: "batch"
+      version: "v1"
+      resource: "cronjobs"
+      kind: "CronJob"
+    - group: "networking.k8s.io"
+      version: "v1"
+      resource: "ingresses"
+      kind: "Ingress"
+
+# Kyverno is already installed externally
+kyverno:
+  enabled: false

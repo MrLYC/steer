@@ -1,0 +1,53 @@
+============================================================
+  Steer - Helm Test Guardrail Policies
+============================================================
+
+Steer has been installed in namespace: {{ .Release.Namespace }}
+
+The following policies have been deployed:
+
+1. Namespace TTL ({{ include "steer.fullname" . }}-ns-ttl)
+   Namespaces with label {{ .Values.namespaceSelector.key }}={{ .Values.namespaceSelector.value }}
+   will be automatically deleted after {{ .Values.namespaceTTL }}.
+
+{{- if .Values.cleanupOnTestComplete.enabled }}
+2. Cleanup on Test Complete ({{ include "steer.fullname" . }}-cleanup-on-test-complete)
+   When Helm test hook Pods are deleted from a managed namespace,
+   the namespace will be scheduled for immediate cleanup.
+{{- end }}
+
+{{- if .Values.history.enabled }}
+3. Record History ({{ include "steer.fullname" . }}-record-history)
+   Resource status will be recorded as ConfigMaps in the
+   {{ include "steer.historyNamespace" . }} namespace before cleanup.
+   History ConfigMaps are retained for {{ .Values.history.ttl }}.
+{{- end }}
+
+PREREQUISITES:
+  - Kyverno must be installed in the cluster.
+{{- if .Values.kyverno.enabled }}
+    (Kyverno is being deployed as a subchart)
+{{- else }}
+    (Kyverno is NOT deployed by this chart. Ensure it is installed separately.)
+{{- end }}
+
+USAGE:
+  Create a namespace with the steer label to enable lifecycle management:
+
+    kubectl create namespace my-test-ns
+    kubectl label namespace my-test-ns {{ .Values.namespaceSelector.key }}={{ .Values.namespaceSelector.value }}
+
+  Or include the label in your Helm chart's namespace template:
+
+    apiVersion: v1
+    kind: Namespace
+    metadata:
+      name: my-test-ns
+      labels:
+        {{ .Values.namespaceSelector.key }}: "{{ .Values.namespaceSelector.value }}"
+
+  View test history:
+
+    kubectl get configmaps -n {{ include "steer.historyNamespace" . }} -l steer.io/history-for
+
+============================================================

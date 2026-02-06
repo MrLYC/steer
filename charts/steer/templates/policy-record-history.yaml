@@ -1,0 +1,93 @@
+{{/*
+# ============================================================================
+# Policy: steer-record-history
+# ============================================================================
+# Purpose:
+#   When a steer-managed namespace is about to be cleaned up (i.e., its
+#   cleanup.kyverno.io/ttl label is set or updated), record the current
+#   resource status of that namespace into a ConfigMap in the steer namespace.
+#
+# How it works:
+#   1. When a managed namespace's cleanup.kyverno.io/ttl label is modified
+#      (typically by the cleanup-on-test-complete policy or initial creation),
+#      this policy triggers
+#   2. It uses Kyverno API calls to query the Kubernetes API for each
+#      configured resource type in that namespace
+#   3. It generates a ConfigMap in the steer (history) namespace with the
+#      same name as the test namespace
+#   4. Each key in the ConfigMap data corresponds to a resource kind,
+#      and the value is a JSON array of {name, status} objects
+#   5. The generated ConfigMap also carries a cleanup.kyverno.io/ttl label
+#      so it is automatically deleted after the configured retention period
+#
+# Notes:
+#   - Uses context apiCall to fetch resource lists from the Kubernetes API
+#   - The ConfigMap is created in the history namespace (default: release ns)
+#   - Resource types to record are configurable via values.yaml
+# ============================================================================
+*/}}
+{{- if .Values.history.enabled }}
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: {{ include "steer.fullname" . }}-record-history
+  labels:
+    {{- include "steer.labels" . | nindent 4 }}
+  annotations:
+    policies.kyverno.io/title: "Record Test History"
+    policies.kyverno.io/category: "Steer History"
+    policies.kyverno.io/severity: "low"
+    policies.kyverno.io/subject: "Namespace, ConfigMap"
+    policies.kyverno.io/description: >-
+      Records the resource status of a steer-managed namespace into a
+      ConfigMap before the namespace is cleaned up.
+spec:
+  rules:
+    - name: record-ns-resources
+      match:
+        any:
+          - resources:
+              kinds:
+                - Namespace
+              operations:
+                - CREATE
+                - UPDATE
+              selector:
+                matchLabels:
+                  {{ include "steer.namespaceSelectorKey" . }}: {{ include "steer.namespaceSelectorValue" . | quote }}
+      preconditions:
+        all:
+          - key: "{{`{{ request.object.metadata.labels.\"cleanup.kyverno.io/ttl\" || '' }}`}}"
+            operator: NotEquals
+            value: ""
+      context:
+        {{- range .Values.history.resources }}
+        - name: {{ .kind | lower }}List
+          apiCall:
+            {{- if eq .group "" }}
+            urlPath: "/api/{{ .version }}/namespaces/{{`{{ request.object.metadata.name }}`}}/{{ .resource }}"
+            {{- else }}
+            urlPath: "/apis/{{ .group }}/{{ .version }}/namespaces/{{`{{ request.object.metadata.name }}`}}/{{ .resource }}"
+            {{- end }}
+            jmesPath: "items[].{name: metadata.name, status: status.phase || status.conditions[-1].type || 'Unknown'} | @"
+            default: []
+        {{- end }}
+      generate:
+        synchronize: true
+        apiVersion: v1
+        kind: ConfigMap
+        name: "{{`{{ request.object.metadata.name }}`}}"
+        namespace: {{ include "steer.historyNamespace" . }}
+        data:
+          metadata:
+            labels:
+              cleanup.kyverno.io/ttl: {{ .Values.history.ttl | quote }}
+              {{- include "steer.labels" . | nindent 14 }}
+              steer.io/history-for: "{{`{{ request.object.metadata.name }}`}}"
+            annotations:
+              steer.io/recorded-at: "{{`{{ time_now_utc() }}`}}"
+          data:
+            {{- range .Values.history.resources }}
+            {{ .kind }}: "{{`{{ `}}{{ .kind | lower }}List | to_string(@){{` }}`}}"
+            {{- end }}
+{{- end }}
