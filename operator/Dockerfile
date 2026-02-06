@@ -82,7 +82,8 @@ COPY --from=builder /workspace/manager .
 COPY --from=frontend-builder /app/ui/dist/public /static
 
 # Install helm CLI for in-process helm operations (scheme A)
-RUN apk add --no-cache ca-certificates curl tar \
+# Also install git to support chart sources backed by git+https.
+RUN apk add --no-cache ca-certificates curl tar git \
     && OS="${TARGETOS:-linux}" \
     && case "${TARGETARCH:-amd64}" in \
       amd64|arm64) ARCH="${TARGETARCH:-amd64}" ;; \

@@ -56,6 +56,10 @@ type GitChartSpec struct {
 	Ref string `json:"ref,omitempty"`
 	// Path is the path to the chart within the repository.
 	Path string `json:"path"`
+	// Username is the optional HTTP basic auth username for Git.
+	Username string `json:"username,omitempty"`
+	// Password is the optional HTTP basic auth password for Git.
+	Password string `json:"password,omitempty"`
 }
 
 type RepositoryChartSpec struct {
@@ -65,6 +69,10 @@ type RepositoryChartSpec struct {
 	Name string `json:"name"`
 	// Version is the chart version.
 	Version string `json:"version,omitempty"`
+	// Username is the optional HTTP basic auth username.
+	Username string `json:"username,omitempty"`
+	// Password is the optional HTTP basic auth password.
+	Password string `json:"password,omitempty"`
 }
 
 type LocalChartSpec struct {
