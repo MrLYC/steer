@@ -169,16 +169,25 @@ jobs:
 
       - name: Verify namespace auto-deleted
         run: |
-          echo "Waiting for Helm test hook pods to be deleted..."
-          attempts=30
+          echo "Waiting for cleanup-on-test-complete TTL to be set (expected: 5s)..."
+          attempts=60
           while [ "$attempts" -gt 0 ]; do
-            count="$(kubectl -n "$STEER_NS" get pods -l "helm.sh/hook=test" --no-headers 2>/dev/null | wc -l | tr -d ' ')"
-            if [ "$count" = "0" ]; then
+            ttl="$(kubectl get namespace "$STEER_NS" -o jsonpath='{.metadata.labels.cleanup\.kyverno\.io/ttl}' 2>/dev/null || true)"
+            if [ "$ttl" = "5s" ]; then
+              echo "OK: cleanup.kyverno.io/ttl=$ttl"
               break
             fi
             attempts=$((attempts - 1))
             sleep 2
           done
+
+          ttl="$(kubectl get namespace "$STEER_NS" -o jsonpath='{.metadata.labels.cleanup\.kyverno\.io/ttl}' 2>/dev/null || true)"
+          if [ "$ttl" != "5s" ]; then
+            echo "ERROR: cleanup.kyverno.io/ttl was not updated to 5s (current: ${ttl:-<empty>})" >&2
+            kubectl get namespace "$STEER_NS" -o yaml || true
+            kubectl -n kyverno get events --sort-by=.lastTimestamp || true
+            exit 1
+          fi
 
           echo "Waiting for namespace $STEER_NS to be deleted..."
           attempts=120

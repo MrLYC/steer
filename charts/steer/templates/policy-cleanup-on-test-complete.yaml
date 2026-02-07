@@ -10,15 +10,15 @@
 # 工作原理：
 #   1. Helm test 创建带有 helm.sh/hook: test 注解的 Pod/Job
 #   2. 当 `helm test` 结束时，用户（或 Helm）会删除这些 hook 资源
-#   3. 该策略捕获此类 Pod/Job 的 DELETE 事件
-#   4. 该策略通过 API 查询命名空间内剩余的 Helm test hook 资源数量
-#   5. 仅当“最后一个 hook 资源”被删除时，才会 Mutate 其所属 Namespace，将 TTL 设置为
+#   3. 该策略捕获此类 Pod/Job 的完成事件（Pod phase=Succeeded / Job Complete=true）
+#   4. 该策略通过 API 查询命名空间内剩余的“未完成” Helm test hook 资源数量
+#   5. 仅当“最后一个 hook 资源”完成时，才会 Mutate 其所属 Namespace，将 TTL 设置为
 #      cleanupOnTestComplete.ttl（默认 10m，可配置），从而触发 Kyverno cleanup controller
 #      在该 TTL 后删除命名空间
 #
 # 说明：
 #   - 使用 “mutate existing” 修改 Namespace（与触发事件的 Pod 不同的资源）
-#   - precondition 会校验被删除的 Pod 是否带有 Helm test hook 注解，且属于 steer 管理的命名空间
+#   - precondition 会校验 Pod/Job 是否带有 Helm test hook 注解，且属于 steer 管理的命名空间
 # ============================================================================
 */}}
 {{- if .Values.cleanupOnTestComplete.enabled }}
@@ -38,38 +38,42 @@ metadata:
       该策略会将命名空间标记为立即清理。
 spec:
   rules:
-    - name: mark-ns-for-cleanup
+    - name: mark-ns-for-cleanup-on-pod-succeeded
       match:
         any:
           - resources:
               kinds:
                 - Pod
-                - Job
               operations:
-                - DELETE
+                - UPDATE
+              subresources:
+                - status
               namespaceSelector:
                 matchLabels:
                   {{ include "steer.namespaceSelectorKey" . }}: {{ include "steer.namespaceSelectorValue" . | quote }}
       context:
         - name: remainingHookPods
           apiCall:
-            urlPath: "/api/v1/namespaces/{{`{{ request.oldObject.metadata.namespace }}`}}/pods"
-            # NOTE: On a DELETE admission request, the object may still appear in list calls.
-            # Exclude the resource being deleted so we can detect the "last hook" correctly.
-            jmesPath: "items[?metadata.name != '{{`{{ request.oldObject.metadata.name }}`}}' && metadata.annotations.\"helm.sh/hook\" != null && (metadata.annotations.\"helm.sh/hook\" == 'test' || metadata.annotations.\"helm.sh/hook\" == 'test-success' || metadata.annotations.\"helm.sh/hook\" == 'test,before-hook-creation' || metadata.annotations.\"helm.sh/hook\" == 'test-success,before-hook-creation')] | length(@)"
+            urlPath: "/api/v1/namespaces/{{`{{ request.object.metadata.namespace }}`}}/pods"
+            # Only count hook pods which are not yet completed.
+            jmesPath: "items[?metadata.annotations.\"helm.sh/hook\" != null && (metadata.annotations.\"helm.sh/hook\" == 'test' || metadata.annotations.\"helm.sh/hook\" == 'test-success' || metadata.annotations.\"helm.sh/hook\" == 'test,before-hook-creation' || metadata.annotations.\"helm.sh/hook\" == 'test-success,before-hook-creation') && status.phase != 'Succeeded'] | length(@)"
         - name: remainingHookJobs
           apiCall:
-            urlPath: "/apis/batch/v1/namespaces/{{`{{ request.oldObject.metadata.namespace }}`}}/jobs"
-            jmesPath: "items[?metadata.name != '{{`{{ request.oldObject.metadata.name }}`}}' && metadata.annotations.\"helm.sh/hook\" != null && (metadata.annotations.\"helm.sh/hook\" == 'test' || metadata.annotations.\"helm.sh/hook\" == 'test-success' || metadata.annotations.\"helm.sh/hook\" == 'test,before-hook-creation' || metadata.annotations.\"helm.sh/hook\" == 'test-success,before-hook-creation')] | length(@)"
+            urlPath: "/apis/batch/v1/namespaces/{{`{{ request.object.metadata.namespace }}`}}/jobs"
+            # Count hook jobs which are not yet Complete.
+            jmesPath: "items[?metadata.annotations.\"helm.sh/hook\" != null && (metadata.annotations.\"helm.sh/hook\" == 'test' || metadata.annotations.\"helm.sh/hook\" == 'test-success' || metadata.annotations.\"helm.sh/hook\" == 'test,before-hook-creation' || metadata.annotations.\"helm.sh/hook\" == 'test-success,before-hook-creation') && length(status.conditions[?type=='Complete' && status=='True']) == `0`] | length(@)"
       preconditions:
         all:
-          - key: "{{`{{ request.oldObject.metadata.annotations.\"helm.sh/hook\" || '' }}`}}"
+          - key: "{{`{{ request.object.metadata.annotations.\"helm.sh/hook\" || '' }}`}}"
             operator: AnyIn
             value:
               - test
               - test-success
               - "test,before-hook-creation"
               - "test-success,before-hook-creation"
+          - key: "{{`{{ request.object.status.phase || '' }}`}}"
+            operator: Equals
+            value: Succeeded
           - key: "{{`{{ remainingHookPods }}`}}"
             operator: Equals
             value: 0
@@ -80,7 +84,58 @@ spec:
         targets:
           - apiVersion: v1
             kind: Namespace
-            name: "{{`{{ request.oldObject.metadata.namespace }}`}}"
+            name: "{{`{{ request.object.metadata.namespace }}`}}"
+        patchStrategicMerge:
+          metadata:
+            labels:
+              cleanup.kyverno.io/ttl: {{ .Values.cleanupOnTestComplete.ttl | quote }}
+
+    - name: mark-ns-for-cleanup-on-job-complete
+      match:
+        any:
+          - resources:
+              kinds:
+                - Job
+              operations:
+                - UPDATE
+              subresources:
+                - status
+              namespaceSelector:
+                matchLabels:
+                  {{ include "steer.namespaceSelectorKey" . }}: {{ include "steer.namespaceSelectorValue" . | quote }}
+      context:
+        - name: remainingHookPods
+          apiCall:
+            urlPath: "/api/v1/namespaces/{{`{{ request.object.metadata.namespace }}`}}/pods"
+            jmesPath: "items[metadata.annotations.\"helm.sh/hook\" != null && (metadata.annotations.\"helm.sh/hook\" == 'test' || metadata.annotations.\"helm.sh/hook\" == 'test-success' || metadata.annotations.\"helm.sh/hook\" == 'test,before-hook-creation' || metadata.annotations.\"helm.sh/hook\" == 'test-success,before-hook-creation') && status.phase != 'Succeeded'] | length(@)"
+        - name: remainingHookJobs
+          apiCall:
+            urlPath: "/apis/batch/v1/namespaces/{{`{{ request.object.metadata.namespace }}`}}/jobs"
+            # Only count hook jobs which are not yet Complete.
+            jmesPath: "items[?metadata.annotations.\"helm.sh/hook\" != null && (metadata.annotations.\"helm.sh/hook\" == 'test' || metadata.annotations.\"helm.sh/hook\" == 'test-success' || metadata.annotations.\"helm.sh/hook\" == 'test,before-hook-creation' || metadata.annotations.\"helm.sh/hook\" == 'test-success,before-hook-creation') && length(status.conditions[?type=='Complete' && status=='True']) == `0`] | length(@)"
+      preconditions:
+        all:
+          - key: "{{`{{ request.object.metadata.annotations.\"helm.sh/hook\" || '' }}`}}"
+            operator: AnyIn
+            value:
+              - test
+              - test-success
+              - "test,before-hook-creation"
+              - "test-success,before-hook-creation"
+          - key: "{{`{{ length(request.object.status.conditions[?type=='Complete' && status=='True']) }}`}}"
+            operator: GreaterThan
+            value: 0
+          - key: "{{`{{ remainingHookPods }}`}}"
+            operator: Equals
+            value: 0
+          - key: "{{`{{ remainingHookJobs }}`}}"
+            operator: Equals
+            value: 0
+      mutate:
+        targets:
+          - apiVersion: v1
+            kind: Namespace
+            name: "{{`{{ request.object.metadata.namespace }}`}}"
         patchStrategicMerge:
           metadata:
             labels:
