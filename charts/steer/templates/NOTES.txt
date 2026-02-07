@@ -1,0 +1,62 @@
+============================================================
+  Steer - Helm 测试护栏策略
+============================================================
+
+Steer 已安装到命名空间：{{ .Release.Namespace }}
+
+已部署以下策略：
+
+1. 命名空间 TTL（{{ include "steer.fullname" . }}-ns-ttl）
+   带有标签 {{ .Values.namespaceSelector.key }}={{ .Values.namespaceSelector.value }} 的命名空间
+   会在 {{ .Values.namespaceTTL }} 后自动删除。
+
+{{- if .Values.cleanupOnTestComplete.enabled }}
+2. 测试完成即清理（{{ include "steer.fullname" . }}-cleanup-on-test-complete）
+   当受管命名空间中的 Helm test hook Pod 被删除时，
+   该命名空间将被安排为立即清理。
+{{- end }}
+
+{{- if .Values.history.enabled }}
+3. 记录历史（{{ include "steer.fullname" . }}-record-history）
+   在清理前，会将资源状态记录为 ConfigMap 并存放在
+   {{ include "steer.historyNamespace" . }} 命名空间中。
+   历史 ConfigMap 会保留 {{ .Values.history.ttl }}。
+{{- end }}
+
+前置条件：
+  - 本 chart 只会创建 Kyverno ClusterPolicy / RBAC 等资源；真正执行策略的是 Kyverno 控制器。
+  - 需要集群中已安装 Kyverno，并启用 cleanup controller（用于根据 cleanup.kyverno.io/ttl 删除资源）。
+{{- if .Values.kyverno.enabled }}
+    （已启用 kyverno.enabled：Kyverno 将作为 chart dependency 一同部署）
+{{- else }}
+    （未启用 kyverno.enabled：该 chart 不会部署 Kyverno，请确保集群已单独安装）
+{{- end }}
+
+用法：
+  创建命名空间并打上 steer 标签，以启用生命周期管理：
+
+    kubectl create namespace my-test-ns
+    kubectl label namespace my-test-ns {{ .Values.namespaceSelector.key }}={{ .Values.namespaceSelector.value }}
+
+  或者，在你的 Helm chart 的 Namespace 模板中包含该标签：
+
+    apiVersion: v1
+    kind: Namespace
+    metadata:
+      name: my-test-ns
+      labels:
+        {{ .Values.namespaceSelector.key }}: "{{ .Values.namespaceSelector.value }}"
+
+  查看测试历史：
+
+    kubectl get configmaps -n {{ include "steer.historyNamespace" . }} -l steer.io/history-for
+
+{{- if or .Values.autoManageNamespaces.byName.enabled .Values.autoManageNamespaces.byCreator.enabled }}
+
+  自动纳管（可选，默认关闭）：
+    你也可以启用 autoManageNamespaces，让 steer 在 Namespace CREATE 时自动打上
+    {{ .Values.namespaceSelector.key }}={{ .Values.namespaceSelector.value }} 标签，并同时设置 cleanup.kyverno.io/ttl。
+    支持按命名空间名称规则（glob：* / ?）和/或创建者用户名列表匹配（满足任一规则即纳管）。
+{{- end }}
+
+============================================================

@@ -1,0 +1,100 @@
+{{/*
+# ============================================================================
+# Policy: steer-cleanup-on-test-complete
+# ============================================================================
+# 目的：
+#   当 steer 管理的命名空间中 Helm 测试 hook 资源（带有 helm.sh/hook: test 或
+#   test-success 注解的 Pod/Job）被删除，且该命名空间内已不存在其它 Helm test hook
+#   资源时，通过更新其 TTL 标签将该命名空间标记为可清理。
+#
+# 工作原理：
+#   1. Helm test 创建带有 helm.sh/hook: test 注解的 Pod/Job
+#   2. 当 `helm test` 结束时，用户（或 Helm）会删除这些 hook 资源
+#   3. 该策略捕获此类 Pod/Job 的 DELETE 事件
+#   4. 该策略通过 API 查询命名空间内剩余的 Helm test hook 资源数量
+#   5. 仅当“最后一个 hook 资源”被删除时，才会 Mutate 其所属 Namespace，将 TTL 设置为
+#      cleanupOnTestComplete.ttl（默认 10m，可配置），从而触发 Kyverno cleanup controller
+#      在该 TTL 后删除命名空间
+#
+# 说明：
+#   - 使用 “mutate existing” 修改 Namespace（与触发事件的 Pod 不同的资源）
+#   - precondition 会校验被删除的 Pod/Job 是否带有 Helm test hook 注解，且属于 steer 管理的命名空间
+# ============================================================================
+*/}}
+{{- if .Values.cleanupOnTestComplete.enabled }}
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: {{ include "steer.fullname" . }}-cleanup-on-test-complete
+  labels:
+    {{- include "steer.labels" . | nindent 4 }}
+  annotations:
+    policies.kyverno.io/title: "Helm 测试完成后清理命名空间"
+    policies.kyverno.io/category: "Steer 生命周期"
+    policies.kyverno.io/severity: "medium"
+    policies.kyverno.io/subject: "Namespace, Pod, Job"
+    policies.kyverno.io/description: >-
+      当 steer 管理的命名空间中 Helm test hook Pod 被删除时，
+      该策略会将命名空间标记为立即清理。
+spec:
+  rules:
+    - name: mark-ns-for-cleanup-on-pod-deleted
+      match:
+        any:
+          - resources:
+              kinds:
+                - Pod
+              operations:
+                - DELETE
+              namespaceSelector:
+                matchLabels:
+                  {{ include "steer.namespaceSelectorKey" . }}: {{ include "steer.namespaceSelectorValue" . | quote }}
+      preconditions:
+        all:
+          - key: "{{`{{ request.oldObject.metadata.annotations.\"helm.sh/hook\" || '' }}`}}"
+            operator: AnyIn
+            value:
+              - test
+              - test-success
+              - "test,before-hook-creation"
+              - "test-success,before-hook-creation"
+      mutate:
+        targets:
+          - apiVersion: v1
+            kind: Namespace
+            name: "{{`{{ request.oldObject.metadata.namespace }}`}}"
+        patchStrategicMerge:
+          metadata:
+            labels:
+              cleanup.kyverno.io/ttl: {{ .Values.cleanupOnTestComplete.ttl | quote }}
+
+    - name: mark-ns-for-cleanup-on-job-deleted
+      match:
+        any:
+          - resources:
+              kinds:
+                - Job
+              operations:
+                - DELETE
+              namespaceSelector:
+                matchLabels:
+                  {{ include "steer.namespaceSelectorKey" . }}: {{ include "steer.namespaceSelectorValue" . | quote }}
+      preconditions:
+        all:
+          - key: "{{`{{ request.oldObject.metadata.annotations.\"helm.sh/hook\" || '' }}`}}"
+            operator: AnyIn
+            value:
+              - test
+              - test-success
+              - "test,before-hook-creation"
+              - "test-success,before-hook-creation"
+      mutate:
+        targets:
+          - apiVersion: v1
+            kind: Namespace
+            name: "{{`{{ request.oldObject.metadata.namespace }}`}}"
+        patchStrategicMerge:
+          metadata:
+            labels:
+              cleanup.kyverno.io/ttl: {{ .Values.cleanupOnTestComplete.ttl | quote }}
+{{- end }}

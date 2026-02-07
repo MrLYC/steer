@@ -1,0 +1,88 @@
+{{/*
+# ============================================================================
+# Policy: steer-record-history
+# ============================================================================
+# 目的：
+#   当 steer 管理的命名空间即将被清理（即其 cleanup.kyverno.io/ttl 标签被设置或更新）时，
+#   将该命名空间当前的资源状态记录到历史命名空间中的 ConfigMap。
+#
+# 工作原理：
+#   1. 当受管命名空间的 cleanup.kyverno.io/ttl 标签被修改时（通常由 cleanup-on-test-complete 策略或命名空间初次创建触发），
+#      本策略会被触发
+#   2. 它使用 Kyverno 的 apiCall 调用 Kubernetes API，查询该命名空间中每一种已配置的资源类型
+#   3. 它会在 steer 的历史命名空间中生成一个 ConfigMap，其名称与被清理的测试命名空间相同
+#   4. ConfigMap data 中的每个 key 对应一种资源 kind，value 为 {name, status} 对象数组的 JSON
+#   5. 生成的 ConfigMap 同样会带有 cleanup.kyverno.io/ttl 标签，因此会在配置的保留期后被自动删除
+#
+# 说明：
+#   - 使用 context apiCall 从 Kubernetes API 拉取资源列表
+#   - ConfigMap 创建在历史命名空间（默认：Release 命名空间）
+#   - 记录哪些资源类型可通过 values.yaml 配置
+# ============================================================================
+*/}}
+{{- if .Values.history.enabled }}
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: {{ include "steer.fullname" . }}-record-history
+  labels:
+    {{- include "steer.labels" . | nindent 4 }}
+  annotations:
+    policies.kyverno.io/title: "记录测试历史"
+    policies.kyverno.io/category: "Steer 历史"
+    policies.kyverno.io/severity: "low"
+    policies.kyverno.io/subject: "Namespace, ConfigMap"
+    policies.kyverno.io/description: >-
+      在命名空间被清理前，将 steer 管理的命名空间资源状态记录到 ConfigMap。
+spec:
+  rules:
+    - name: record-ns-resources
+      match:
+        any:
+          - resources:
+              kinds:
+                - Namespace
+              operations:
+                - UPDATE
+              selector:
+                matchLabels:
+                  {{ include "steer.namespaceSelectorKey" . }}: {{ include "steer.namespaceSelectorValue" . | quote }}
+      preconditions:
+        all:
+          - key: "{{`{{ request.object.metadata.labels.\"cleanup.kyverno.io/ttl\" || '' }}`}}"
+            operator: NotEquals
+            value: ""
+          - key: "{{`{{ request.oldObject.metadata.labels.\"cleanup.kyverno.io/ttl\" || '' }}`}}"
+            operator: NotEquals
+            value: "{{`{{ request.object.metadata.labels.\"cleanup.kyverno.io/ttl\" || '' }}`}}"
+      context:
+        {{- range .Values.history.resources }}
+        - name: {{ .kind | lower }}List
+          apiCall:
+            {{- if eq .group "" }}
+            urlPath: "/api/{{ .version }}/namespaces/{{`{{ request.object.metadata.name }}`}}/{{ .resource }}"
+            {{- else }}
+            urlPath: "/apis/{{ .group }}/{{ .version }}/namespaces/{{`{{ request.object.metadata.name }}`}}/{{ .resource }}"
+            {{- end }}
+            jmesPath: "items[].{name: metadata.name, status: status.phase || status.conditions[-1].type || 'Unknown'} | @"
+            default: []
+        {{- end }}
+      generate:
+        synchronize: true
+        apiVersion: v1
+        kind: ConfigMap
+        name: "{{`{{ request.object.metadata.name }}`}}"
+        namespace: {{ include "steer.historyNamespace" . }}
+        data:
+          metadata:
+            labels:
+              cleanup.kyverno.io/ttl: {{ .Values.history.ttl | quote }}
+              {{- include "steer.labels" . | nindent 14 }}
+              steer.io/history-for: "{{`{{ request.object.metadata.name }}`}}"
+            annotations:
+              steer.io/recorded-at: "{{`{{ time_now_utc() }}`}}"
+          data:
+            {{- range .Values.history.resources }}
+            {{ .kind }}: "{{`{{ `}}{{ .kind | lower }}List | to_string(@){{` }}`}}"
+            {{- end }}
+{{- end }}

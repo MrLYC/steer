@@ -1,0 +1,58 @@
+{{/*
+# ============================================================================
+# Policy: steer-ns-ttl
+# ============================================================================
+# 目的：
+#   为匹配 steer 选择器标签的命名空间自动添加 cleanup.kyverno.io/ttl 标签。
+#   这可以确保测试命名空间在可配置的 TTL（默认：2h）后被自动清理，避免资源过度占用。
+#
+# 工作原理：
+#   1. 创建命名空间，并打上标签（例如 steer.io/managed=true）
+#   2. 本 ClusterPolicy 在 CREATE 时对命名空间执行 Mutate，添加 TTL 标签
+#   3. Kyverno 内置的 TTL cleanup controller 会在 TTL 到期后删除命名空间
+#
+# 依赖：
+#   - 需要安装 Kyverno，且启用 cleanup controller
+#   - Kyverno 需要具备删除 Namespace 资源的权限
+# ============================================================================
+*/}}
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: {{ include "steer.fullname" . }}-ns-ttl
+  labels:
+    {{- include "steer.labels" . | nindent 4 }}
+  annotations:
+    policies.kyverno.io/title: "为 Steer 管理的命名空间添加 TTL"
+    policies.kyverno.io/category: "Steer 生命周期"
+    policies.kyverno.io/severity: "medium"
+    policies.kyverno.io/subject: "Namespace"
+    policies.kyverno.io/description: >-
+      自动为 Steer 管理的命名空间添加 cleanup.kyverno.io/ttl 标签，确保其在配置的 TTL
+      （{{ .Values.namespaceTTL }}）到期后被删除。
+spec:
+  rules:
+    - name: add-ns-ttl
+      match:
+        any:
+          - resources:
+              kinds:
+                - Namespace
+              operations:
+                - CREATE
+                - UPDATE
+              selector:
+                matchLabels:
+                  {{ include "steer.namespaceSelectorKey" . }}: {{ include "steer.namespaceSelectorValue" . | quote }}
+      preconditions:
+        all:
+          # Only set the initial TTL if it doesn't exist yet.
+          # This prevents overwriting a shorter TTL (e.g. cleanupOnTestComplete).
+          - key: "{{`{{ request.object.metadata.labels.\"cleanup.kyverno.io/ttl\" || '' }}`}}"
+            operator: Equals
+            value: ""
+      mutate:
+        patchStrategicMerge:
+          metadata:
+            labels:
+              cleanup.kyverno.io/ttl: {{ .Values.namespaceTTL | quote }}

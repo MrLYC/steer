@@ -1,67 +1,112 @@
-image:
-  repository: docker.io/mrlyc/steer-operator
-  pullPolicy: IfNotPresent
-  # Overrides the image tag whose default is the chart appVersion.
-  tag: "sha-afb4787"
+# ============================================================================
+# Steer - Helm 测试护栏策略
+# ============================================================================
+# 本 chart 会安装一组 Kyverno ClusterPolicy，用于为 Helm test 工作流提供“护栏”。
+# 它会自动管理命名空间生命周期：
+#
+# 1. 在可配置 TTL（默认：2h）后自动删除命名空间
+# 2. 当 Helm test hook 资源被清理时，加速删除命名空间
+# 3. 在清理前将测试历史记录为 ConfigMap
+# 4. 在可配置保留期后自动清理历史 ConfigMap
+#
+# 所有策略都只作用于匹配特定标签选择器的命名空间。
+# ============================================================================
 
-imagePullSecrets: []
-nameOverride: ""
-fullnameOverride: ""
+# -- 用于识别 steer 管理命名空间的标签 key。
+# 当命名空间的该标签被设置为 "true"（默认）时，将受到 steer 策略管理。
+namespaceSelector:
+  key: "steer.io/managed"
+  value: "true"
 
-serviceAccount:
-  create: true
-  annotations: {}
-  name: ""
-
-rbac:
-  create: true
-
-podAnnotations: {}
-
-podSecurityContext: {}
-  # fsGroup: 2000
-
-securityContext:
-  allowPrivilegeEscalation: false
-  capabilities:
-    drop:
-      - ALL
-
-resources: {}
-
-nodeSelector: {}
-tolerations: []
-affinity: {}
-
-leaderElection:
-  enabled: true
-
-healthProbe:
-  bindAddress: ":8081"
-
-metrics:
-  # metrics-bind-address is computed as:
-  # - 127.0.0.1:<port> by default
-  # - 0.0.0.0:<port> if listenOnAllInterfaces=true
-  # - bindAddress if non-empty (overrides both)
-  port: 8080
-  listenOnAllInterfaces: false
-  bindAddress: ""
-  secure: false
-  enableHTTP2: false
-  service:
+# -- 自动纳管（自动打 steer 标签 + 设置 TTL）配置。
+# 说明：这是“可选策略”，默认关闭。
+# 当启用后，满足以下任一规则的 Namespace 在 CREATE 时会被自动纳管：
+#   - 命名空间名称匹配 byName.patterns 中任意一个通配符模式（glob：* 和 ?）
+#   - 创建者用户名（request.userInfo.username）在 byCreator.usernames 列表中
+#
+# 注意：两种规则彼此独立；满足一个即可匹配。
+autoManageNamespaces:
+  byName:
+    # -- 是否按命名空间名称规则自动纳管。
     enabled: false
-    type: ClusterIP
-    # If 0, defaults to metrics.port
-    port: 0
-    annotations: {}
+    # -- 命名空间名称通配符模式列表（例如：steer-ci-*）。为空则不会生效。
+    patterns: []
+  byCreator:
+    # -- 是否按创建者用户名列表自动纳管。
+    enabled: false
+    # -- 创建者用户名列表（精确匹配 request.userInfo.username）。为空则不会生效。
+    # 例："alice" 或 "system:serviceaccount:ci:github-actions"。
+    usernames: []
+  # -- 永远不自动纳管的命名空间（精确名称匹配）。
+  exclude:
+    - kube-system
+    - kube-public
+    - kube-node-lease
+    - kyverno
+    - default
 
-web:
+# -- 命名空间 TTL 配置。
+# 受管命名空间会在该时长后自动删除。
+namespaceTTL: "2h"
+
+# -- 是否在 Helm test hook 资源删除后加速清理命名空间。
+# 当受管命名空间中带有注解 `helm.sh/hook: test`（或 `test-success`）的 Pod/Job 被删除时，
+# 会将该命名空间标记为尽快删除。
+cleanupOnTestComplete:
   enabled: true
-  addr: ":8082"
-  staticDir: "/static"
-  service:
-    enabled: true
-    type: ClusterIP
-    port: 80
-    annotations: {}
+  # -- 当 Helm test hook 资源删除后，用于加速清理的 TTL。
+  # 该 TTL 会在“最后一个 Helm test hook 资源”被删除后设置到命名空间上。
+  ttl: "10m"
+
+# -- 测试历史记录配置。
+history:
+  # -- 是否启用测试历史记录。
+  enabled: true
+  # -- 存放历史 ConfigMap 的命名空间。
+  # 默认为 Release 命名空间。
+  namespace: ""
+  # -- 历史 ConfigMap 的 TTL；到期后将自动删除。
+  ttl: "24h"
+  # -- 需要记录到历史 ConfigMap 的资源类型。
+  # 每条配置对应一个 Kubernetes API 路径片段，用于查询该资源列表。
+  # 输出到 ConfigMap data 中的 key 使用资源 kind。
+  resources:
+    - group: ""
+      version: "v1"
+      resource: "pods"
+      kind: "Pod"
+    - group: "apps"
+      version: "v1"
+      resource: "deployments"
+      kind: "Deployment"
+    - group: "apps"
+      version: "v1"
+      resource: "statefulsets"
+      kind: "StatefulSet"
+    - group: "apps"
+      version: "v1"
+      resource: "daemonsets"
+      kind: "DaemonSet"
+    - group: "apps"
+      version: "v1"
+      resource: "replicasets"
+      kind: "ReplicaSet"
+    - group: "batch"
+      version: "v1"
+      resource: "jobs"
+      kind: "Job"
+    - group: "batch"
+      version: "v1"
+      resource: "cronjobs"
+      kind: "CronJob"
+
+# -- 为 Kyverno 管理资源提供所需的额外 RBAC 权限。
+# Steer 会创建 ClusterRole，以授予 Kyverno 所需权限。
+rbac:
+  enabled: true
+
+# -- Kyverno 子 chart 配置。
+# 将 kyverno.enabled 设为 true，会将 Kyverno 作为子 chart 一同部署。
+# 如果集群中已安装 Kyverno，请保持关闭。
+kyverno:
+  enabled: false

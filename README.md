@@ -1,203 +1,135 @@
-# Steer - Kubernetes Helm Test Operator
+# Steer - Helm 测试护栏（Guardrails）
 
-Steer 是一个基于 Kubernetes Operator 的 Helm 烟雾测试管理系统。它允许你定义 Helm Release 的发布流程,并自动执行测试任务,确保应用在 Kubernetes 集群中的稳定性。
+Steer 是一种为基于 Helm 测试的工作流提供自动化生命周期管理的工具。它通过一组 Kyverno 集群策略（ClusterPolicies）实现，为临时测试环境提供强大的“护栏”，确保资源不会被过度占用，并自动记录测试历史。
 
-## 核心特性
+该项目不再是早期的 Operator 实现，而是完全基于 Kyverno 策略的轻量级 Helm Chart。
 
-- **声明式管理**: 使用 CRD (`HelmRelease`, `HelmTestJob`) 定义发布和测试流程。
-- **自动化测试**: 支持 `helm test` 和自定义脚本钩子。
-- **灵活调度**: 支持一次性任务(支持延迟执行)和 Cron 周期性任务。
-- **钩子系统**: 支持测试前后的自定义操作,可引用 CRD 字段作为环境变量。
-- **Web 管理界面**: 提供可视化的 Dashboard,方便管理和监控。
+## 核心功能
 
-## 快速开始（K8s 测试模式）
+- **命名空间自动清理**：为匹配特定标签的命名空间设置一个可配置的“存活时间”（TTL），超时后自动删除，避免资源泄漏。
+- **测试完成即清理**：当 `helm test` 创建的钩子资源（如 Pod 或 Job）被删除时，自动触发对应命名空间的清理，实现即时回收。
+- **测试历史记录**：在命名空间被清理前，自动捕获并记录其中关键资源（如 Pods, Deployments, Jobs 等）的状态，并将其保存为一个 ConfigMap，存放在指定的历史记录命名空间中。
+- **历史记录自动归档**：为生成的历史记录 ConfigMap 也设置 TTL，实现历史数据的自动归档清理。
+- **高度可配置**：所有功能均可通过 Helm `values.yaml` 文件进行开关和配置，包括命名空间选择器、TTL 时长、历史记录范围等。
+- **原生集成 Kyverno**：作为一个 Helm Chart，它可以选择性地将 Kyverno 作为子 Chart 一并部署，或依赖于集群中已有的 Kyverno 实例。
+- **可选自动纳管（默认关闭）**：可按命名空间名称规则（glob：`*`/`?`）和/或创建者用户名白名单（`request.userInfo.username`）自动识别并纳入管理（满足任一规则即匹配）。
 
-这是一个 **测试工具模式**：在同一个 Operator 进程中同时运行 Controller Manager + Web UI/API。
-该模式用于快速验证/演示，不按生产形态做隔离（例如权限面/故障域/发布解耦）。
+## 工作原理
 
-### 前置要求
+Steer 的核心是一系列协同工作的 Kyverno `ClusterPolicy` 资源，它们共同实现了一套完整的自动化流程：
 
-- Kubernetes 集群（用于运行 operator）
-- kubectl
+1.  **识别目标命名空间**：默认情况下，用户通过为一个命名空间添加特定标签（默认为 `steer.io/managed: "true"`）来将其纳入 Steer 的管理范围。
+    
+    可选地，你也可以启用 `autoManageNamespaces`，让 Steer 在 Namespace CREATE 时根据命名空间名称规则和/或创建者用户名白名单自动打标（满足任一规则即纳管）。
 
-### 运行（集群内）
+2.  **设置初始 TTL**：一个 `Mutate` 策略会捕获新创建的受管命名空间，并自动为其添加一个 `cleanup.kyverno.io/ttl` 标签，其值由用户配置（默认为 `2h`）。这为命名空间设定了最终的“生命期限”。
 
-operator 启动时带上 `--web` 指定监听地址即可开启 Web：
+3.  **监控测试钩子**：另一个 `Mutate` 策略会持续监控受管命名空间中带有 `helm.sh/hook: test` 注解的 Pod/Job。当这些 hook 资源被删除且命名空间中已不存在其它测试 hook 资源时（通常意味着 `helm test` 全部完成），该策略会将对应命名空间的 `cleanup.kyverno.io/ttl` 标签更新为一个较短的值（默认 `10m`，可配置），从而“提早”触发清理流程。
+
+4.  **捕获并记录历史**：一个 `Generate` 策略会在命名空间的 `cleanup.kyverno.io/ttl` 标签被设置或更新时触发。它利用 Kyverno 的 `apiCall` 上下文变量功能，实时查询该命名空间内所有预设类型的工作负载资源，并将这些资源的状态（名称、状态等）整理成一个 JSON 字符串。
+
+5.  **生成历史文件**：该 `Generate` 策略随后在指定的历史记录命名空间（默认为 Steer 的发布命名空间）中创建一个与被清理命名空间同名的 ConfigMap。资源状态的 JSON 字符串被存入此 ConfigMap 的 `data` 字段。同时，这个新创建的 ConfigMap 自身也被打上了一个 `cleanup.kyverno.io/ttl` 标签（默认为 `24h`），以便在未来自动删除。
+
+6.  **自动清理**：最后，Kyverno 内置的 `cleanup-controller` 会根据 `cleanup.kyverno.io/ttl` 标签，在指定时间到达后，安全地删除命名空间和历史记录 ConfigMap。
+
+这个设计巧妙地利用了 Kyverno 的声明式策略和自动化能力，形成了一个无需外部控制器或 Operator 的、完全在集群内部自洽运行的护栏系统。
+
+## 快速开始
+
+### 前提条件
+
+- 一个正在运行的 Kubernetes 集群。
+- `kubectl` 和 `helm` 已安装并配置。
+- 集群中已安装 Kyverno，并启用 cleanup controller（用于根据 `cleanup.kyverno.io/ttl` 删除命名空间/历史 ConfigMap）。
+  如果你的集群还没有 Kyverno，可以在部署 Steer 时通过 `values.yaml` 启用 Kyverno dependency（见下文示例）。
+
+### 安装
+
+1.  **添加 Helm 仓库（如果需要发布）**
+
+    ```bash
+    # 此步骤仅在未来图表发布到公共仓库后需要
+    # helm repo add steer <repo-url>
+    # helm repo update
+    ```
+
+2.  **安装 Steer Chart**
+
+    将此仓库克隆到本地，然后使用 Helm 安装。
+
+    ```bash
+    git clone https://github.com/<your-username>/steer.git
+    cd steer
+
+    # 安装到 steer 命名空间（建议加上 --dependency-update 以自动拉取子 chart 依赖）
+    helm install steer ./charts/steer -n steer --create-namespace --dependency-update
+    ```
+
+3.  **安装并启用 Kyverno（如果集群中没有）**
+
+    如果你的集群尚未安装 Kyverno，可以使用 `examples/values-with-kyverno.yaml` 文件来同时部署 Steer 和 Kyverno。
+
+    ```bash
+    helm install steer ./charts/steer -n steer --create-namespace --dependency-update \
+      -f examples/values-with-kyverno.yaml
+    ```
+
+### 使用示例
+
+1.  **创建一个用于测试的命名空间，并打上 Steer 管理标签。**
+
+    ```bash
+    kubectl create namespace my-helm-test
+    kubectl label namespace my-helm-test steer.io/managed=true
+    ```
+
+2.  **在该命名空间中运行一个带有 `helm test` 钩子的 Chart。**
+
+    Helm 会在这个命名空间中创建一个或多个带有 `helm.sh/hook: test` 注解的 Pod。
+
+3.  **观察效果**
+
+    - **命名空间 TTL**：检查 `my-helm-test` 命名空间，你会发现它被自动添加了 `cleanup.kyverno.io/ttl: 2h` 标签。
+      ```bash
+      kubectl get namespace my-helm-test --show-labels
+      ```
+
+- **测试完成**：当 `helm test` 全部结束并删除测试 hook 资源后，再次检查该命名空间，`cleanup.kyverno.io/ttl` 标签会被更新为一个较短的值（默认 `10m`，可配置）。
+
+    - **历史记录**：在命名空间被删除后，检查 Steer 所在的命名空间（或 `values.yaml` 中指定的历史命名空间），会发现一个名为 `my-helm-test` 的 ConfigMap。
+      ```bash
+      # 假设 steer 安装在 "steer" 命名空间
+      kubectl get configmap my-helm-test -n steer -o yaml
+      ```
+      这个 ConfigMap 的 `data` 字段中包含了 `my-helm-test` 命名空间被删除前的资源快照。
+
+## 配置
+
+所有配置项都在 `charts/steer/values.yaml` 文件中，并有详细注释。主要配置包括：
+
+| 参数 | 描述 | 默认值 |
+|---|---|---|
+| `namespaceSelector.key` | 用于识别受管命名空间的标签键。 | `steer.io/managed` |
+| `namespaceSelector.value` | 用于识别受管命名空间的标签值。 | `true` |
+| `namespaceTTL` | 受管命名空间的默认存活时间。 | `2h` |
+| `cleanupOnTestComplete.enabled` | 是否在 Helm 测试钩子资源删除后立即清理命名空间。 | `true` |
+| `cleanupOnTestComplete.ttl` | 测试钩子资源删除后用于加速清理的 TTL。 | `10m` |
+| `history.enabled` | 是否启用测试历史记录。 | `true` |
+| `history.namespace` | 存储历史记录 ConfigMap 的命名空间。 | `{{ .Release.Namespace }}` |
+| `history.ttl` | 历史记录 ConfigMap 的存活时间。 | `24h` |
+| `history.resources` | 一个对象数组，定义了需要记录哪些资源类型及其 API 路径。 | 预设的 Kubernetes 工作负载 |
+| `kyverno.enabled` | 是否将 Kyverno 作为子 Chart 一同部署。 | `false` |
+| `autoManageNamespaces.byName.enabled` | 是否按命名空间名称规则自动纳管（glob：`*`/`?`）。 | `false` |
+| `autoManageNamespaces.byName.patterns` | 命名空间名称模式列表（例如 `steer-ci-*`）。 | `[]` |
+| `autoManageNamespaces.byCreator.enabled` | 是否按创建者用户名白名单自动纳管。 | `false` |
+| `autoManageNamespaces.byCreator.usernames` | 创建者用户名白名单（精确匹配 `request.userInfo.username`）。 | `[]` |
+| `autoManageNamespaces.exclude` | 永不自动纳管的命名空间名称列表（精确匹配）。 | 内置常见系统命名空间 |
+
+## 贡献
+
+欢迎通过 Pull Request 或 Issue 对项目做出贡献。在本地开发和测试时，你可以使用 `helm template` 或 `helm install --dry-run` 命令来渲染和验证模板的输出。
 
 ```bash
-kubectl -n system exec -it deploy/controller-manager -- /manager --help
-```
-
-默认部署清单会以 `--web=:8082` 启动，并把 UI 静态文件挂载在容器内 `/static`。
-
-访问方式（示例：port-forward）：
-
-```bash
-# Helm 安装且 releaseName=steer 时，web Service 默认为：steer-web
-kubectl -n steer-system port-forward svc/steer-web 8080:80
-```
-
-然后访问：`http://localhost:8080/`（UI）和 `http://localhost:8080/api/v1/...`（API）。
-
-### Helm 安装（推荐本地/演示）
-
-仓库提供了一个 Helm chart：`charts/steer`，用于部署 operator/manager（而不是早期演示用的 `backend/`）。
-
-```bash
-helm upgrade --install steer charts/steer \
-  -n steer-system --create-namespace \
-  --set image.repository=<your-registry>/steer-operator \
-  --set image.tag=<tag>
-```
-
-#### Metrics（不使用 kube-rbac-proxy）
-
-该 Helm chart **不包含 kube-rbac-proxy**。metrics 由 manager 直接提供（默认只监听 127.0.0.1）。
-
-- 默认：`127.0.0.1:8080`（集群内不可直接访问，最安全）
-- 如需在集群内暴露（请自行配合 NetworkPolicy 等）：
-
-```bash
-helm upgrade --install steer charts/steer \
-  -n steer-system --create-namespace \
-  --set image.repository=<your-registry>/steer-operator \
-  --set image.tag=<tag> \
-  --set metrics.listenOnAllInterfaces=true \
-  --set metrics.service.enabled=true
-```
-
-### 使用指南
-
-1. 打开 Web 界面。
-2. 在 **Helm Releases** 页面创建一个新的 Release。
-3. 在 **Test Jobs** 页面创建一个新的测试任务,关联刚才创建的 Release。
-   - 尝试设置 `Schedule Type` 为 `once` 并设置 `Delay` 为 `5s`。
-4. 观察任务状态从 `Pending` -> `Running` -> `Succeeded` 的变化。
-5. 点击 **Logs** 按钮查看测试结果和钩子执行情况。
-
-## 项目结构
-
-```
-steer/
-├── backend/              # 早期演示用的 mock 后端（已保留，但推荐使用 operator 内置 web 模式）
-├── ui/                   # Web UI (React)
-│   ├── client/           # 前端源码
-│   │   ├── src/
-│   │   │   ├── api/      # API 客户端
-│   │   │   ├── components/# 公共组件
-│   │   │   ├── pages/    # 页面组件
-│   │   │   └── App.tsx   # 路由配置
-│   └── package.json      # 前端依赖
-└── operator/             # Kubebuilder operator（可选开启内置 web）
-```
-
-## CRD 定义
-
-### HelmRelease
-
-描述一个 Helm Release 的发布配置。
-
-```yaml
-apiVersion: steer.io/v1alpha1
-kind: HelmRelease
-metadata:
-  name: nginx-example
-  namespace: default
-spec:
-  chart:
-    source: repository
-    repository:
-      name: hello-world
-      url: https://helm.github.io/examples
-      version: 0.1.0
-  deployment:
-    # 部署到的 namespace（UI 默认与 metadata.namespace 相同）
-    namespace: default
-  values:
-    # chart values 的 YAML（也可留空字符串）
-    inline: |
-      replicaCount: 1
-```
-
-## UI 页面怎么配置（Embedded Web 测试模式）
-
-### 1) 创建 Release（Releases 页面）
-
-页面只需要填一个 **Namespace**：它会同时用于 `metadata.namespace` 和 `spec.deployment.namespace`。
-
-用官方示例仓库的 chart（你给的 `https://helm.github.io/examples` 是有效的 Helm repo）：
-
-- Name: `test`
-- Namespace: `test-steer`
-- Chart Name: `hello-world`
-- Repository URL: `https://helm.github.io/examples`
-- Version: `0.1.0`
-- Values (YAML/JSON): 留空（或填 YAML 字符串）
-
-对应的 CR（等价于 UI 创建的 payload）：
-
-```yaml
-apiVersion: steer.io/v1alpha1
-kind: HelmRelease
-metadata:
-  name: test
-  namespace: test-steer
-spec:
-  chart:
-    source: repository
-    repository:
-      name: hello-world
-      url: https://helm.github.io/examples
-      version: 0.1.0
-  deployment:
-    namespace: test-steer
-  values:
-    inline: ""
-```
-
-> 你之前的报错通常是因为用了旧结构（`spec.chart.name/spec.chart.repository/spec.values:{}`）去打 operator 的 API。
-
-### 2) 创建 Test Job（Test Jobs 页面）
-
-- Name: `test-hello-world-01`
-- Namespace: `test-steer`
-- Release: 选择 `test-steer/test`
-- Schedule Type: `once`
-- Delay: `5s`
-
-> NOTE：当前 operator 会在自身进程内直接执行 `helm test <release> -n <ns>`（方案 A），不再使用占位命令。
-> 
-> - **不配置 hooks** 时：不需要 `spec.test.image` / `STEER_JOB_IMAGE`。
-> - **配置 hooks（script）** 时：hooks 仍通过 Kubernetes Job 执行，因此需要提供 `spec.test.image` 或设置环境变量 `STEER_JOB_IMAGE`（镜像需包含 /bin/sh 等）。
-
-### HelmTestJob
-
-描述一个测试任务。
-
-```yaml
-apiVersion: steer.io/v1alpha1
-kind: HelmTestJob
-metadata:
-  name: test-nginx-01
-  namespace: default
-spec:
-  helmReleaseRef:
-    name: nginx-example
-    namespace: default
-  schedule:
-    type: once
-    delay: 5m  # 延迟 5 分钟执行
-  test:
-    timeout: 10m
-  hooks:
-    preTest:
-      - name: notify-start
-        type: script
-        env:
-          - name: RELEASE_NAME
-            valueFrom:
-              helmReleaseRef:
-                fieldPath: metadata.name
-        script: |
-          echo "Starting test for $RELEASE_NAME"
+# 渲染模板并查看输出
+helm template steer ./charts/steer -n steer --dependency-update
 ```

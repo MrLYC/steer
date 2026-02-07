@@ -1,0 +1,287 @@
+name: CI
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+    branches: [master, main]
+
+jobs:
+  helm-lint-template:
+    name: Helm lint & template
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: v3.14.0
+
+      - name: Add Kyverno Helm repo
+        run: |
+          helm repo add kyverno https://kyverno.github.io/kyverno/
+          helm repo update
+
+      - name: Build chart dependencies
+        run: helm dependency build charts/steer
+
+      - name: Helm lint
+        run: helm lint charts/steer
+
+      - name: Helm template (default values)
+        run: helm template steer charts/steer -n steer --dependency-update >/dev/null
+
+      - name: Helm template (with kyverno enabled)
+        run: helm template steer charts/steer -n steer --dependency-update -f examples/values-with-kyverno.yaml >/dev/null
+
+      - name: Helm template (custom values)
+        run: helm template steer charts/steer -n steer --dependency-update -f examples/values-custom.yaml >/dev/null
+
+  kind-helm-test:
+    name: kind + helm test
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up kubectl
+        uses: azure/setup-kubectl@v4
+        with:
+          version: v1.30.0
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: v3.14.0
+
+      - name: Create kind cluster
+        uses: helm/kind-action@v1.10.0
+        with:
+          cluster_name: steer
+          node_image: kindest/node:v1.30.4
+          kubectl_version: v1.30.0
+
+      - name: Add Kyverno Helm repo
+        run: |
+          helm repo add kyverno https://kyverno.github.io/kyverno/
+          helm repo update
+
+      - name: Build chart dependencies
+        run: helm dependency build charts/steer
+
+      - name: Install Kyverno (from chart dependency)
+        run: |
+          kyverno_chart="$(ls charts/steer/charts/kyverno-*.tgz | head -n 1)"
+          echo "Using Kyverno chart: ${kyverno_chart}"
+
+          helm install kyverno "${kyverno_chart}" \
+            -n kyverno \
+            --create-namespace \
+            --wait \
+            --timeout 5m
+
+      - name: Wait for Kyverno CRDs
+        run: |
+          attempts=60
+          while [ "$attempts" -gt 0 ]; do
+            if kubectl get crd clusterpolicies.kyverno.io >/dev/null 2>&1; then
+              exit 0
+            fi
+            attempts=$((attempts - 1))
+            sleep 2
+          done
+          echo "Timed out waiting for Kyverno CRDs" >&2
+          kubectl get crd | head -n 50 || true
+          exit 1
+
+      - name: Wait for Kyverno controllers
+        run: |
+          kubectl -n kyverno get deploy -o name || true
+          kubectl -n kyverno wait --for=condition=available deploy \
+            -l app.kubernetes.io/part-of=kyverno \
+            --timeout=5m
+
+      - name: Prepare Steer test namespace
+        run: |
+          ns="steer-ci-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          echo "STEER_NS=$ns" >> "$GITHUB_ENV"
+
+          kubectl create namespace "$ns"
+          kubectl get namespace "$ns" --show-labels
+
+      - name: Install Steer chart
+        run: |
+          helm install steer ./charts/steer \
+            -n "$STEER_NS" \
+            --create-namespace \
+            --dependency-update \
+            --set-string cleanupOnTestComplete.ttl=5s \
+            --wait \
+            --timeout 5m
+
+      - name: Wait for Steer policies
+        run: |
+          wait_policy_ready() {
+            name="$1"
+            attempts=60
+            while [ "$attempts" -gt 0 ]; do
+              status="$(kubectl get clusterpolicy "$name" -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || true)"
+              if echo "$status" | grep -q "True"; then
+                return 0
+              fi
+              attempts=$((attempts - 1))
+              sleep 2
+            done
+            echo "ERROR: ClusterPolicy $name not Ready" >&2
+            kubectl get clusterpolicy "$name" -o yaml || true
+            return 1
+          }
+
+          wait_policy_ready "steer-ns-ttl"
+          wait_policy_ready "steer-cleanup-on-test-complete"
+          wait_policy_ready "steer-record-history"
+
+      - name: Label Steer test namespace (managed)
+        run: |
+          kubectl label namespace "$STEER_NS" steer.io/managed=true --overwrite
+
+          echo "Waiting for cleanup ttl label to be set..."
+          attempts=60
+          while [ "$attempts" -gt 0 ]; do
+            ttl="$(kubectl get namespace "$STEER_NS" -o jsonpath='{.metadata.labels.cleanup\.kyverno\.io/ttl}' 2>/dev/null || true)"
+            if [ -n "$ttl" ]; then
+              echo "OK: cleanup.kyverno.io/ttl=$ttl"
+              exit 0
+            fi
+            attempts=$((attempts - 1))
+            sleep 2
+          done
+
+          echo "ERROR: cleanup.kyverno.io/ttl label was not set in time" >&2
+          kubectl get namespace "$STEER_NS" -o yaml || true
+          exit 1
+
+      - name: Helm test
+        run: helm test steer -n "$STEER_NS" --timeout 5m
+
+      - name: Force delete Helm test hooks
+        run: |
+          echo "Detecting helm test hook pods/jobs..."
+
+          hook_pods="$(kubectl -n "$STEER_NS" get pods -o jsonpath='{range .items[?(@.metadata.annotations["helm.sh/hook"]=="test")]}{.metadata.name}{" "}{end}' 2>/dev/null || true)"
+          hook_jobs="$(kubectl -n "$STEER_NS" get jobs -o jsonpath='{range .items[?(@.metadata.annotations["helm.sh/hook"]=="test")]}{.metadata.name}{" "}{end}' 2>/dev/null || true)"
+
+          if [ -n "$hook_pods" ]; then
+            echo "Hook pods: $hook_pods"
+            for p in $hook_pods; do
+              kubectl -n "$STEER_NS" delete pod "$p" --ignore-not-found --wait=false
+            done
+          else
+            echo "No hook pods found"
+          fi
+
+          if [ -n "$hook_jobs" ]; then
+            echo "Hook jobs: $hook_jobs"
+            for j in $hook_jobs; do
+              kubectl -n "$STEER_NS" delete job "$j" --ignore-not-found --wait=false
+            done
+          else
+            echo "No hook jobs found"
+          fi
+
+      - name: Verify namespace auto-deleted
+        run: |
+          echo "Waiting for cleanup-on-test-complete TTL to be set (expected: 5s)..."
+          attempts=60
+          while [ "$attempts" -gt 0 ]; do
+            ttl="$(kubectl get namespace "$STEER_NS" -o jsonpath='{.metadata.labels.cleanup\.kyverno\.io/ttl}' 2>/dev/null || true)"
+            if [ "$ttl" = "5s" ]; then
+              echo "OK: cleanup.kyverno.io/ttl=$ttl"
+              break
+            fi
+            attempts=$((attempts - 1))
+            sleep 2
+          done
+
+          ttl="$(kubectl get namespace "$STEER_NS" -o jsonpath='{.metadata.labels.cleanup\.kyverno\.io/ttl}' 2>/dev/null || true)"
+          if [ "$ttl" != "5s" ]; then
+            echo "ERROR: cleanup.kyverno.io/ttl was not updated to 5s (current: ${ttl:-<empty>})" >&2
+            kubectl get namespace "$STEER_NS" -o yaml || true
+            kubectl -n kyverno get events --sort-by=.lastTimestamp || true
+            exit 1
+          fi
+
+          echo "Waiting for namespace $STEER_NS to be deleted..."
+          attempts=120
+          while [ "$attempts" -gt 0 ]; do
+            if ! kubectl get namespace "$STEER_NS" >/dev/null 2>&1; then
+              echo "OK: namespace deleted"
+              exit 0
+            fi
+            attempts=$((attempts - 1))
+            sleep 2
+          done
+
+          echo "ERROR: namespace $STEER_NS was not deleted in time" >&2
+          kubectl get namespace "$STEER_NS" -o yaml || true
+          kubectl -n "$STEER_NS" get all || true
+          kubectl -n "$STEER_NS" get events --sort-by=.lastTimestamp || true
+          kubectl -n kyverno get events --sort-by=.lastTimestamp || true
+          exit 1
+
+      - name: Debug (on failure)
+        if: failure()
+        run: |
+          ns="${STEER_NS:-steer}"
+
+          echo "=== versions ==="
+          helm version || true
+          kubectl version --output=yaml || true
+          kubectl get nodes -o wide || true
+
+          echo "=== cluster pods ==="
+          kubectl get pods -A
+
+          echo "=== steer ==="
+          kubectl get clusterpolicy || true
+          kubectl -n "$ns" get all || true
+          kubectl -n "$ns" get events --sort-by=.lastTimestamp || true
+
+          echo "=== steer test pods ==="
+          kubectl -n "$ns" get pods -o wide || true
+          kubectl -n "$ns" get pods -l "helm.sh/hook=test" -o wide || true
+          for p in $(kubectl -n "$ns" get pods -l "helm.sh/hook=test" -o name 2>/dev/null || true); do
+            echo "--- logs: $p (current) ---"
+            kubectl -n "$ns" logs "$p" --all-containers --tail=200 || true
+            echo "--- logs: $p (previous) ---"
+            kubectl -n "$ns" logs "$p" --all-containers --tail=200 --previous || true
+          done
+
+          echo "=== kyverno ==="
+          kubectl -n kyverno get all || true
+          kubectl -n kyverno get deploy || true
+
+          echo "=== kyverno pods (describe) ==="
+          kubectl -n kyverno get pods -o wide || true
+          for p in $(kubectl -n kyverno get pods -o name 2>/dev/null | grep -i kyverno || true); do
+            echo "--- describe: $p ---"
+            kubectl -n kyverno describe "$p" || true
+          done
+
+          echo "=== kyverno logs (current) ==="
+          for p in $(kubectl -n kyverno get pods -o name 2>/dev/null | grep -i kyverno || true); do
+            echo "--- logs: $p (current) ---"
+            kubectl -n kyverno logs "$p" --all-containers --tail=200 || true
+          done
+
+          echo "=== kyverno logs (previous) ==="
+          for p in $(kubectl -n kyverno get pods -o name 2>/dev/null | grep -i kyverno || true); do
+            echo "--- logs: $p (previous) ---"
+            kubectl -n kyverno logs "$p" --all-containers --tail=200 --previous || true
+          done
+
+          echo "=== kyverno events ==="
+          kubectl -n kyverno get events --sort-by=.lastTimestamp || true

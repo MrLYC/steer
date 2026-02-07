@@ -1,12 +1,12 @@
 {{/*
-Expand the name of the chart.
+展开 chart 名称。
 */}}
 {{- define "steer.name" -}}
 {{- default .Chart.Name .Values.nameOverride | trunc 63 | trimSuffix "-" }}
 {{- end }}
 
 {{/*
-Create a default fully qualified app name.
+创建默认的 fully qualified 应用名称。
 */}}
 {{- define "steer.fullname" -}}
 {{- if .Values.fullnameOverride }}
@@ -22,26 +22,16 @@ Create a default fully qualified app name.
 {{- end }}
 
 {{/*
-Chart name and version.
-*/}}
-{{- define "steer.chart" -}}
-{{- printf "%s-%s" .Chart.Name .Chart.Version | replace "+" "_" | trunc 63 | trimSuffix "-" }}
-{{- end }}
-
-{{/*
-Common labels
+通用标签。
 */}}
 {{- define "steer.labels" -}}
 helm.sh/chart: {{ include "steer.chart" . }}
 {{ include "steer.selectorLabels" . }}
-{{- if .Chart.AppVersion }}
-app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
-{{- end }}
 app.kubernetes.io/managed-by: {{ .Release.Service }}
 {{- end }}
 
 {{/*
-Selector labels
+Selector 标签。
 */}}
 {{- define "steer.selectorLabels" -}}
 app.kubernetes.io/name: {{ include "steer.name" . }}
@@ -49,36 +39,31 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
 
 {{/*
-Service account name
+创建用于 chart label 的 chart 名称与版本。
 */}}
-{{- define "steer.serviceAccountName" -}}
-{{- if .Values.serviceAccount.create }}
-{{- default (include "steer.fullname" .) .Values.serviceAccount.name }}
+{{- define "steer.chart" -}}
+{{- printf "%s-%s" .Chart.Name .Chart.Version | replace "+" "_" | trunc 63 | trimSuffix "-" }}
+{{- end }}
+
+{{/*
+存放历史 ConfigMap 的命名空间。
+默认使用 Release 命名空间。
+*/}}
+{{- define "steer.historyNamespace" -}}
+{{- if .Values.history.namespace }}
+{{- .Values.history.namespace }}
 {{- else }}
-{{- default "default" .Values.serviceAccount.name }}
+{{- .Release.Namespace }}
 {{- end }}
 {{- end }}
 
 {{/*
-Compute manager --metrics-bind-address
+命名空间选择器的标签 key 与 value。
 */}}
-{{- define "steer.metricsBindAddress" -}}
-{{- if .Values.metrics.bindAddress }}
-{{- .Values.metrics.bindAddress -}}
-{{- else if .Values.metrics.listenOnAllInterfaces }}
-{{- printf "0.0.0.0:%d" (int .Values.metrics.port) -}}
-{{- else }}
-{{- printf "127.0.0.1:%d" (int .Values.metrics.port) -}}
-{{- end }}
+{{- define "steer.namespaceSelectorKey" -}}
+{{- .Values.namespaceSelector.key }}
 {{- end }}
 
-{{/*
-Compute metrics Service port
-*/}}
-{{- define "steer.metricsServicePort" -}}
-{{- if .Values.metrics.service.port }}
-{{- .Values.metrics.service.port -}}
-{{- else }}
-{{- .Values.metrics.port -}}
-{{- end }}
+{{- define "steer.namespaceSelectorValue" -}}
+{{- .Values.namespaceSelector.value }}
 {{- end }}

@@ -1,0 +1,15 @@
+# 示例：将 Steer 与 Kyverno（作为子 chart）一起部署
+# 用法：
+#   helm install steer charts/steer -n steer -f examples/values-with-kyverno.yaml --create-namespace
+
+namespaceTTL: "2h"
+
+cleanupOnTestComplete:
+  enabled: true
+
+history:
+  enabled: true
+  ttl: "24h"
+
+kyverno:
+  enabled: true
