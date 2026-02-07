@@ -18,6 +18,33 @@ namespaceSelector:
   key: "steer.io/managed"
   value: "true"
 
+# -- 自动纳管（自动打 steer 标签 + 设置 TTL）配置。
+# 说明：这是“可选策略”，默认关闭。
+# 当启用后，满足以下任一规则的 Namespace 在 CREATE 时会被自动纳管：
+#   - 命名空间名称匹配 byName.patterns 中任意一个通配符模式（glob：* 和 ?）
+#   - 创建者用户名（request.userInfo.username）在 byCreator.usernames 列表中
+#
+# 注意：两种规则彼此独立；满足一个即可匹配。
+autoManageNamespaces:
+  byName:
+    # -- 是否按命名空间名称规则自动纳管。
+    enabled: false
+    # -- 命名空间名称通配符模式列表（例如：steer-ci-*）。为空则不会生效。
+    patterns: []
+  byCreator:
+    # -- 是否按创建者用户名列表自动纳管。
+    enabled: false
+    # -- 创建者用户名列表（精确匹配 request.userInfo.username）。为空则不会生效。
+    # 例："alice" 或 "system:serviceaccount:ci:github-actions"。
+    usernames: []
+  # -- 永远不自动纳管的命名空间（精确名称匹配）。
+  exclude:
+    - kube-system
+    - kube-public
+    - kube-node-lease
+    - kyverno
+    - default
+
 # -- 命名空间 TTL 配置。
 # 受管命名空间会在该时长后自动删除。
 namespaceTTL: "2h"

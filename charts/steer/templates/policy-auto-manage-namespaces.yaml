@@ -1,0 +1,104 @@
+{{/*
+# ============================================================================
+# Policy: steer-auto-manage-namespaces
+# ============================================================================
+# 目的：
+#   在 Namespace CREATE 时，根据可选策略自动将命名空间标记为“受 Steer 管理”。
+#
+# 工作原理：
+#   - 当命名空间名称匹配 glob 规则，或创建者用户名匹配白名单时：
+#       1) 自动打上 steer 管理标签（默认 steer.io/managed=true）
+#       2) 同时设置 cleanup.kyverno.io/ttl（默认与 namespaceTTL 一致），确保会被清理
+#
+# 注意：
+#   - 两种匹配方式是两条独立规则（满足任一规则即纳管）
+#   - 默认关闭；仅在 values 中启用并配置规则后才会渲染
+#   - 永远不会自动纳管 exclude 列表里的命名空间
+# ============================================================================
+*/}}
+
+{{- $enabledByName := and (.Values.autoManageNamespaces.byName.enabled | default false) (gt (len (.Values.autoManageNamespaces.byName.patterns | default (list))) 0) -}}
+{{- $enabledByCreator := and (.Values.autoManageNamespaces.byCreator.enabled | default false) (gt (len (.Values.autoManageNamespaces.byCreator.usernames | default (list))) 0) -}}
+{{- if or $enabledByName $enabledByCreator }}
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: {{ include "steer.fullname" . }}-auto-manage-namespaces
+  labels:
+    {{- include "steer.labels" . | nindent 4 }}
+  annotations:
+    policies.kyverno.io/title: "自动纳管命名空间"
+    policies.kyverno.io/category: "Steer 生命周期"
+    policies.kyverno.io/severity: "low"
+    policies.kyverno.io/subject: "Namespace"
+    policies.kyverno.io/description: >-
+      在 Namespace CREATE 时，根据名称规则/创建者白名单自动为命名空间打上 steer 管理标签，
+      并设置 cleanup.kyverno.io/ttl。
+spec:
+  rules:
+{{- if $enabledByName }}
+{{- range $i, $p := .Values.autoManageNamespaces.byName.patterns }}
+    - name: auto-manage-by-name-{{ $i }}
+      match:
+        any:
+          - resources:
+              kinds:
+                - Namespace
+              names:
+                - {{ $p | quote }}
+              operations:
+                - CREATE
+      {{- if gt (len ($.Values.autoManageNamespaces.exclude | default (list))) 0 }}
+      exclude:
+        any:
+          - resources:
+              kinds:
+                - Namespace
+              names:
+{{- toYaml ($.Values.autoManageNamespaces.exclude | default (list)) | nindent 16 }}
+              operations:
+                - CREATE
+      {{- end }}
+      mutate:
+        patchStrategicMerge:
+          metadata:
+            labels:
+              {{ include "steer.namespaceSelectorKey" $ }}: {{ include "steer.namespaceSelectorValue" $ | quote }}
+              cleanup.kyverno.io/ttl: {{ $.Values.namespaceTTL | quote }}
+{{- end }}
+{{- end }}
+
+{{- if $enabledByCreator }}
+    - name: auto-manage-by-creator
+      match:
+        any:
+          - resources:
+              kinds:
+                - Namespace
+              operations:
+                - CREATE
+      preconditions:
+        all:
+          - key: "{{`{{ request.userInfo.username || '' }}`}}"
+            operator: AnyIn
+            value:
+{{- toYaml (.Values.autoManageNamespaces.byCreator.usernames | default (list)) | nindent 14 }}
+      {{- if gt (len (.Values.autoManageNamespaces.exclude | default (list))) 0 }}
+      exclude:
+        any:
+          - resources:
+              kinds:
+                - Namespace
+              names:
+{{- toYaml (.Values.autoManageNamespaces.exclude | default (list)) | nindent 16 }}
+              operations:
+                - CREATE
+      {{- end }}
+      mutate:
+        patchStrategicMerge:
+          metadata:
+            labels:
+              {{ include "steer.namespaceSelectorKey" . }}: {{ include "steer.namespaceSelectorValue" . | quote }}
+              cleanup.kyverno.io/ttl: {{ .Values.namespaceTTL | quote }}
+{{- end }}
+{{- end }}

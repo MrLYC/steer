@@ -24,11 +24,12 @@ Steer 已安装到命名空间：{{ .Release.Namespace }}
 {{- end }}
 
 前置条件：
-  - 集群中必须安装 Kyverno。
+  - 本 chart 只会创建 Kyverno ClusterPolicy / RBAC 等资源；真正执行策略的是 Kyverno 控制器。
+  - 需要集群中已安装 Kyverno，并启用 cleanup controller（用于根据 cleanup.kyverno.io/ttl 删除资源）。
 {{- if .Values.kyverno.enabled }}
-    （Kyverno 将作为子 chart 一同部署）
+    （已启用 kyverno.enabled：Kyverno 将作为 chart dependency 一同部署）
 {{- else }}
-    （该 chart 不会部署 Kyverno，请确保集群已单独安装）
+    （未启用 kyverno.enabled：该 chart 不会部署 Kyverno，请确保集群已单独安装）
 {{- end }}
 
 用法：
@@ -49,5 +50,13 @@ Steer 已安装到命名空间：{{ .Release.Namespace }}
   查看测试历史：
 
     kubectl get configmaps -n {{ include "steer.historyNamespace" . }} -l steer.io/history-for
+
+{{- if or .Values.autoManageNamespaces.byName.enabled .Values.autoManageNamespaces.byCreator.enabled }}
+
+  自动纳管（可选，默认关闭）：
+    你也可以启用 autoManageNamespaces，让 steer 在 Namespace CREATE 时自动打上
+    {{ .Values.namespaceSelector.key }}={{ .Values.namespaceSelector.value }} 标签，并同时设置 cleanup.kyverno.io/ttl。
+    支持按命名空间名称规则（glob：* / ?）和/或创建者用户名列表匹配（满足任一规则即纳管）。
+{{- end }}
 
 ============================================================

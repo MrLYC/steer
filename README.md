@@ -12,12 +12,15 @@ Steer 是一种为基于 Helm 测试的工作流提供自动化生命周期管�
 - **历史记录自动归档**：为生成的历史记录 ConfigMap 也设置 TTL，实现历史数据的自动归档清理。
 - **高度可配置**：所有功能均可通过 Helm `values.yaml` 文件进行开关和配置，包括命名空间选择器、TTL 时长、历史记录范围等。
 - **原生集成 Kyverno**：作为一个 Helm Chart，它可以选择性地将 Kyverno 作为子 Chart 一并部署，或依赖于集群中已有的 Kyverno 实例。
+- **可选自动纳管（默认关闭）**：可按命名空间名称规则（glob：`*`/`?`）和/或创建者用户名白名单（`request.userInfo.username`）自动识别并纳入管理（满足任一规则即匹配）。
 
 ## 工作原理
 
 Steer 的核心是一系列协同工作的 Kyverno `ClusterPolicy` 资源，它们共同实现了一套完整的自动化流程：
 
-1.  **识别目标命名空间**：用户通过为一个命名空间添加特定标签（默认为 `steer.io/managed: "true"`）来将其纳入 Steer 的管理范围。
+1.  **识别目标命名空间**：默认情况下，用户通过为一个命名空间添加特定标签（默认为 `steer.io/managed: "true"`）来将其纳入 Steer 的管理范围。
+    
+    可选地，你也可以启用 `autoManageNamespaces`，让 Steer 在 Namespace CREATE 时根据命名空间名称规则和/或创建者用户名白名单自动打标（满足任一规则即纳管）。
 
 2.  **设置初始 TTL**：一个 `Mutate` 策略会捕获新创建的受管命名空间，并自动为其添加一个 `cleanup.kyverno.io/ttl` 标签，其值由用户配置（默认为 `2h`）。这为命名空间设定了最终的“生命期限”。
 
@@ -37,7 +40,8 @@ Steer 的核心是一系列协同工作的 Kyverno `ClusterPolicy` 资源，它�
 
 - 一个正在运行的 Kubernetes 集群。
 - `kubectl` 和 `helm` 已安装并配置。
-- 集群中已安装 Kyverno（v1.9+）。如果未安装，可以在部署 Steer 时通过 `values.yaml` 启用 Kyverno 子 Chart 的安装。
+- 集群中已安装 Kyverno，并启用 cleanup controller（用于根据 `cleanup.kyverno.io/ttl` 删除命名空间/历史 ConfigMap）。
+  如果你的集群还没有 Kyverno，可以在部署 Steer 时通过 `values.yaml` 启用 Kyverno dependency（见下文示例）。
 
 ### 安装
 
@@ -115,6 +119,11 @@ Steer 的核心是一系列协同工作的 Kyverno `ClusterPolicy` 资源，它�
 | `history.ttl` | 历史记录 ConfigMap 的存活时间。 | `24h` |
 | `history.resources` | 一个对象数组，定义了需要记录哪些资源类型及其 API 路径。 | 预设的 Kubernetes 工作负载 |
 | `kyverno.enabled` | 是否将 Kyverno 作为子 Chart 一同部署。 | `false` |
+| `autoManageNamespaces.byName.enabled` | 是否按命名空间名称规则自动纳管（glob：`*`/`?`）。 | `false` |
+| `autoManageNamespaces.byName.patterns` | 命名空间名称模式列表（例如 `steer-ci-*`）。 | `[]` |
+| `autoManageNamespaces.byCreator.enabled` | 是否按创建者用户名白名单自动纳管。 | `false` |
+| `autoManageNamespaces.byCreator.usernames` | 创建者用户名白名单（精确匹配 `request.userInfo.username`）。 | `[]` |
+| `autoManageNamespaces.exclude` | 永不自动纳管的命名空间名称列表（精确匹配）。 | 内置常见系统命名空间 |
 
 ## 贡献
 
