@@ -55,8 +55,8 @@ namespaceTTL: "2h"
 cleanupOnTestComplete:
   enabled: true
   # -- 当 Helm test hook 资源删除后，用于加速清理的 TTL。
-  # 通常应配置为较短的时长（默认：5s）。
-  ttl: "5s"
+  # 该 TTL 会在“最后一个 Helm test hook 资源”被删除后设置到命名空间上。
+  ttl: "10m"
 
 # -- 测试历史记录配置。
 history:
