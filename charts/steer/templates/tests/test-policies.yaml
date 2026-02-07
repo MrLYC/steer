@@ -12,31 +12,31 @@ spec:
   serviceAccountName: {{ include "steer.fullname" . }}-test
   containers:
     - name: test
-      image: bitnami/kubectl:latest
+      image: bitnami/kubectl:1.30.3
       command:
         - /bin/sh
         - -ec
         - |
-          echo "=== Steer Policy Validation ==="
+          echo "=== Steer 策略校验 ==="
 
-          echo "Checking ClusterPolicy: {{ include "steer.fullname" . }}-ns-ttl..."
+          echo "检查 ClusterPolicy: {{ include "steer.fullname" . }}-ns-ttl..."
           kubectl get clusterpolicy {{ include "steer.fullname" . }}-ns-ttl -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' | grep -q "True"
-          echo "  OK: ns-ttl policy is ready"
+          echo "  OK: ns-ttl 策略已就绪"
 
           {{- if .Values.cleanupOnTestComplete.enabled }}
-          echo "Checking ClusterPolicy: {{ include "steer.fullname" . }}-cleanup-on-test-complete..."
+          echo "检查 ClusterPolicy: {{ include "steer.fullname" . }}-cleanup-on-test-complete..."
           kubectl get clusterpolicy {{ include "steer.fullname" . }}-cleanup-on-test-complete -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' | grep -q "True"
-          echo "  OK: cleanup-on-test-complete policy is ready"
+          echo "  OK: cleanup-on-test-complete 策略已就绪"
           {{- end }}
 
           {{- if .Values.history.enabled }}
-          echo "Checking ClusterPolicy: {{ include "steer.fullname" . }}-record-history..."
+          echo "检查 ClusterPolicy: {{ include "steer.fullname" . }}-record-history..."
           kubectl get clusterpolicy {{ include "steer.fullname" . }}-record-history -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' | grep -q "True"
-          echo "  OK: record-history policy is ready"
+          echo "  OK: record-history 策略已就绪"
           {{- end }}
 
           echo ""
-          echo "=== All Steer policies are ready ==="
+          echo "=== 所有 Steer 策略均已就绪 ==="
 ---
 apiVersion: v1
 kind: ServiceAccount
@@ -47,6 +47,23 @@ metadata:
   annotations:
     helm.sh/hook: test
     helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "steer.fullname" . }}-test
+  labels:
+    {{- include "steer.labels" . | nindent 4 }}
+  annotations:
+    helm.sh/hook: test
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+rules:
+  - apiGroups:
+      - kyverno.io
+    resources:
+      - clusterpolicies
+    verbs:
+      - get
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
@@ -60,7 +77,7 @@ metadata:
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
-  name: view
+  name: {{ include "steer.fullname" . }}-test
 subjects:
   - kind: ServiceAccount
     name: {{ include "steer.fullname" . }}-test

@@ -2,28 +2,22 @@
 # ============================================================================
 # Policy: steer-record-history
 # ============================================================================
-# Purpose:
-#   When a steer-managed namespace is about to be cleaned up (i.e., its
-#   cleanup.kyverno.io/ttl label is set or updated), record the current
-#   resource status of that namespace into a ConfigMap in the steer namespace.
+# 目的：
+#   当 steer 管理的命名空间即将被清理（即其 cleanup.kyverno.io/ttl 标签被设置或更新）时，
+#   将该命名空间当前的资源状态记录到历史命名空间中的 ConfigMap。
 #
-# How it works:
-#   1. When a managed namespace's cleanup.kyverno.io/ttl label is modified
-#      (typically by the cleanup-on-test-complete policy or initial creation),
-#      this policy triggers
-#   2. It uses Kyverno API calls to query the Kubernetes API for each
-#      configured resource type in that namespace
-#   3. It generates a ConfigMap in the steer (history) namespace with the
-#      same name as the test namespace
-#   4. Each key in the ConfigMap data corresponds to a resource kind,
-#      and the value is a JSON array of {name, status} objects
-#   5. The generated ConfigMap also carries a cleanup.kyverno.io/ttl label
-#      so it is automatically deleted after the configured retention period
+# 工作原理：
+#   1. 当受管命名空间的 cleanup.kyverno.io/ttl 标签被修改时（通常由 cleanup-on-test-complete 策略或命名空间初次创建触发），
+#      本策略会被触发
+#   2. 它使用 Kyverno 的 apiCall 调用 Kubernetes API，查询该命名空间中每一种已配置的资源类型
+#   3. 它会在 steer 的历史命名空间中生成一个 ConfigMap，其名称与被清理的测试命名空间相同
+#   4. ConfigMap data 中的每个 key 对应一种资源 kind，value 为 {name, status} 对象数组的 JSON
+#   5. 生成的 ConfigMap 同样会带有 cleanup.kyverno.io/ttl 标签，因此会在配置的保留期后被自动删除
 #
-# Notes:
-#   - Uses context apiCall to fetch resource lists from the Kubernetes API
-#   - The ConfigMap is created in the history namespace (default: release ns)
-#   - Resource types to record are configurable via values.yaml
+# 说明：
+#   - 使用 context apiCall 从 Kubernetes API 拉取资源列表
+#   - ConfigMap 创建在历史命名空间（默认：Release 命名空间）
+#   - 记录哪些资源类型可通过 values.yaml 配置
 # ============================================================================
 */}}
 {{- if .Values.history.enabled }}
@@ -34,13 +28,12 @@ metadata:
   labels:
     {{- include "steer.labels" . | nindent 4 }}
   annotations:
-    policies.kyverno.io/title: "Record Test History"
-    policies.kyverno.io/category: "Steer History"
+    policies.kyverno.io/title: "记录测试历史"
+    policies.kyverno.io/category: "Steer 历史"
     policies.kyverno.io/severity: "low"
     policies.kyverno.io/subject: "Namespace, ConfigMap"
     policies.kyverno.io/description: >-
-      Records the resource status of a steer-managed namespace into a
-      ConfigMap before the namespace is cleaned up.
+      在命名空间被清理前，将 steer 管理的命名空间资源状态记录到 ConfigMap。
 spec:
   rules:
     - name: record-ns-resources

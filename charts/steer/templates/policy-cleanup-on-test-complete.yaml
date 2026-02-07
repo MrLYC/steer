@@ -2,23 +2,20 @@
 # ============================================================================
 # Policy: steer-cleanup-on-test-complete
 # ============================================================================
-# Purpose:
-#   When Helm test hook resources (Pods with helm.sh/hook: test or
-#   test-success annotation) are deleted from a steer-managed namespace,
-#   mark that namespace for immediate cleanup by updating its TTL label.
+# 目的：
+#   当 steer 管理的命名空间中 Helm 测试 hook 资源（带有 helm.sh/hook: test 或
+#   test-success 注解的 Pod）被删除时，通过更新其 TTL 标签将该命名空间标记为立即清理。
 #
-# How it works:
-#   1. Helm test creates Pods/Jobs with annotation helm.sh/hook: test
-#   2. When `helm test` completes, the user (or helm) deletes these resources
-#   3. This policy detects the DELETE event on such Pods
-#   4. It mutates the parent namespace to set a short TTL (5s), triggering
-#      Kyverno's cleanup controller to delete the namespace shortly after
+# 工作原理：
+#   1. Helm test 创建带有 helm.sh/hook: test 注解的 Pod/Job
+#   2. 当 `helm test` 结束时，用户（或 Helm）会删除这些资源
+#   3. 该策略捕获此类 Pod 的 DELETE 事件
+#   4. 该策略 Mutate 其所属 Namespace，将 TTL 设置为较短值（默认 5s，可配置），
+#      从而触发 Kyverno cleanup controller 在短时间后删除命名空间
 #
-# Notes:
-#   - Uses "mutate existing" to modify the Namespace (a different resource
-#     than the trigger Pod)
-#   - The precondition checks that the deleted Pod has the helm test hook
-#     annotation and belongs to a steer-managed namespace
+# 说明：
+#   - 使用 “mutate existing” 修改 Namespace（与触发事件的 Pod 不同的资源）
+#   - precondition 会校验被删除的 Pod 是否带有 Helm test hook 注解，且属于 steer 管理的命名空间
 # ============================================================================
 */}}
 {{- if .Values.cleanupOnTestComplete.enabled }}
@@ -29,13 +26,13 @@ metadata:
   labels:
     {{- include "steer.labels" . | nindent 4 }}
   annotations:
-    policies.kyverno.io/title: "Cleanup Namespace on Helm Test Completion"
-    policies.kyverno.io/category: "Steer Lifecycle"
+    policies.kyverno.io/title: "Helm 测试完成后清理命名空间"
+    policies.kyverno.io/category: "Steer 生命周期"
     policies.kyverno.io/severity: "medium"
     policies.kyverno.io/subject: "Namespace, Pod"
     policies.kyverno.io/description: >-
-      When Helm test hook Pods are deleted from a steer-managed namespace,
-      this policy marks the namespace for immediate cleanup.
+      当 steer 管理的命名空间中 Helm test hook Pod 被删除时，
+      该策略会将命名空间标记为立即清理。
 spec:
   rules:
     - name: mark-ns-for-cleanup
@@ -66,5 +63,5 @@ spec:
         patchStrategicMerge:
           metadata:
             labels:
-              cleanup.kyverno.io/ttl: "5s"
+              cleanup.kyverno.io/ttl: {{ default "5s" .Values.cleanupOnTestComplete.ttl | quote }}
 {{- end }}

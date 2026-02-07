@@ -1,12 +1,12 @@
 {{/*
-Expand the name of the chart.
+展开 chart 名称。
 */}}
 {{- define "steer.name" -}}
 {{- default .Chart.Name .Values.nameOverride | trunc 63 | trimSuffix "-" }}
 {{- end }}
 
 {{/*
-Create a default fully qualified app name.
+创建默认的 fully qualified 应用名称。
 */}}
 {{- define "steer.fullname" -}}
 {{- if .Values.fullnameOverride }}
@@ -22,7 +22,7 @@ Create a default fully qualified app name.
 {{- end }}
 
 {{/*
-Common labels
+通用标签。
 */}}
 {{- define "steer.labels" -}}
 helm.sh/chart: {{ include "steer.chart" . }}
@@ -31,7 +31,7 @@ app.kubernetes.io/managed-by: {{ .Release.Service }}
 {{- end }}
 
 {{/*
-Selector labels
+Selector 标签。
 */}}
 {{- define "steer.selectorLabels" -}}
 app.kubernetes.io/name: {{ include "steer.name" . }}
@@ -39,15 +39,15 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
 
 {{/*
-Create chart name and version as used by the chart label.
+创建用于 chart label 的 chart 名称与版本。
 */}}
 {{- define "steer.chart" -}}
 {{- printf "%s-%s" .Chart.Name .Chart.Version | replace "+" "_" | trunc 63 | trimSuffix "-" }}
 {{- end }}
 
 {{/*
-The namespace where history ConfigMaps are stored.
-Defaults to the release namespace.
+存放历史 ConfigMap 的命名空间。
+默认使用 Release 命名空间。
 */}}
 {{- define "steer.historyNamespace" -}}
 {{- if .Values.history.namespace }}
@@ -58,7 +58,7 @@ Defaults to the release namespace.
 {{- end }}
 
 {{/*
-Namespace selector label key and value.
+命名空间选择器的标签 key 与 value。
 */}}
 {{- define "steer.namespaceSelectorKey" -}}
 {{- .Values.namespaceSelector.key }}

@@ -1,45 +1,48 @@
 # ============================================================================
-# Steer - Helm Test Guardrail Policies
+# Steer - Helm 测试护栏策略
 # ============================================================================
-# This chart installs Kyverno ClusterPolicies that provide guardrails for
-# Helm test workflows. It manages namespace lifecycle automatically:
+# 本 chart 会安装一组 Kyverno ClusterPolicy，用于为 Helm test 工作流提供“护栏”。
+# 它会自动管理命名空间生命周期：
 #
-# 1. Auto-delete namespaces after a configurable TTL (default: 2h)
-# 2. Delete namespaces when Helm test hook resources are cleaned up
-# 3. Record test history as ConfigMaps in the steer namespace
-# 4. Auto-cleanup history ConfigMaps after a configurable retention period
+# 1. 在可配置 TTL（默认：2h）后自动删除命名空间
+# 2. 当 Helm test hook 资源被清理时，加速删除命名空间
+# 3. 在清理前将测试历史记录为 ConfigMap
+# 4. 在可配置保留期后自动清理历史 ConfigMap
 #
-# All policies target namespaces matching a specific label selector.
+# 所有策略都只作用于匹配特定标签选择器的命名空间。
 # ============================================================================
 
-# -- The label key used to identify namespaces managed by steer.
-# Namespaces with this label set to "true" will be subject to steer policies.
+# -- 用于识别 steer 管理命名空间的标签 key。
+# 当命名空间的该标签被设置为 "true"（默认）时，将受到 steer 策略管理。
 namespaceSelector:
   key: "steer.io/managed"
   value: "true"
 
-# -- Namespace TTL configuration.
-# Managed namespaces will be automatically deleted after this duration.
+# -- 命名空间 TTL 配置。
+# 受管命名空间会在该时长后自动删除。
 namespaceTTL: "2h"
 
-# -- Whether to enable namespace cleanup when Helm test hook resources are deleted.
-# When a Pod/Job with the annotation `helm.sh/hook: test` (or `test-success`)
-# is deleted from a managed namespace, that namespace will be scheduled for deletion.
+# -- 是否在 Helm test hook 资源删除后加速清理命名空间。
+# 当受管命名空间中带有注解 `helm.sh/hook: test`（或 `test-success`）的 Pod/Job 被删除时，
+# 会将该命名空间标记为尽快删除。
 cleanupOnTestComplete:
   enabled: true
+  # -- 当 Helm test hook 资源删除后，用于加速清理的 TTL。
+  # 通常应配置为较短的时长（默认：5s）。
+  ttl: "5s"
 
-# -- Test history recording configuration.
+# -- 测试历史记录配置。
 history:
-  # -- Whether to enable test history recording.
+  # -- 是否启用测试历史记录。
   enabled: true
-  # -- The namespace where history ConfigMaps are stored.
-  # Defaults to the release namespace.
+  # -- 存放历史 ConfigMap 的命名空间。
+  # 默认为 Release 命名空间。
   namespace: ""
-  # -- TTL for history ConfigMaps. They will be auto-deleted after this duration.
+  # -- 历史 ConfigMap 的 TTL；到期后将自动删除。
   ttl: "24h"
-  # -- Resource types to record in the history ConfigMap.
-  # Each entry is a Kubernetes API path segment used to query the resource list.
-  # The key in the resulting ConfigMap data will be the resource kind.
+  # -- 需要记录到历史 ConfigMap 的资源类型。
+  # 每条配置对应一个 Kubernetes API 路径片段，用于查询该资源列表。
+  # 输出到 ConfigMap data 中的 key 使用资源 kind。
   resources:
     - group: ""
       version: "v1"
@@ -70,13 +73,13 @@ history:
       resource: "cronjobs"
       kind: "CronJob"
 
-# -- Extra RBAC permissions for Kyverno to manage resources.
-# Steer will create ClusterRoles granting Kyverno the permissions it needs.
+# -- 为 Kyverno 管理资源提供所需的额外 RBAC 权限。
+# Steer 会创建 ClusterRole，以授予 Kyverno 所需权限。
 rbac:
   enabled: true
 
-# -- Kyverno subchart configuration.
-# Set kyverno.enabled to true to deploy Kyverno as a subchart.
-# If you already have Kyverno installed in your cluster, leave this disabled.
+# -- Kyverno 子 chart 配置。
+# 将 kyverno.enabled 设为 true，会将 Kyverno 作为子 chart 一同部署。
+# 如果集群中已安装 Kyverno，请保持关闭。
 kyverno:
   enabled: false

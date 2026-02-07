@@ -2,18 +2,16 @@
 # ============================================================================
 # RBAC: Kyverno Permissions for Steer Policies
 # ============================================================================
-# Purpose:
-#   Grant Kyverno the necessary permissions to:
-#   1. Delete Namespaces (for TTL cleanup)
-#   2. Read workload resources in namespaces (for history recording)
-#   3. Create/update ConfigMaps in the history namespace (for history recording)
-#   4. Mutate Namespaces (for cleanup-on-test-complete)
+# 目的：
+#   授予 Kyverno 运行 Steer 策略所需的权限：
+#   1. 删除 Namespace（用于 TTL 清理）
+#   2. 读取命名空间内工作负载资源（用于历史记录）
+#   3. 在历史命名空间创建/更新 ConfigMap（用于历史记录）
+#   4. 修改 Namespace（用于“测试完成即清理”）
 #
-# Notes:
-#   - These ClusterRoles follow Kyverno's labeling convention so that
-#     Kyverno's controllers can aggregate them automatically
-#   - The background controller needs permissions for generate and
-#     mutate existing rules
+# 说明：
+#   - 这些 ClusterRole 遵循 Kyverno 的标签约定，以便 Kyverno 控制器可以自动聚合
+#   - background controller 需要 generate / mutate existing 等能力对应的权限
 # ============================================================================
 */}}
 {{- if .Values.rbac.enabled }}

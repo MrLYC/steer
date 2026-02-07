@@ -1,4 +1,4 @@
-# Steer - Helm Test Guardrails
+# Steer - Helm 测试护栏（Guardrails）
 
 Steer 是一种为基于 Helm 测试的工作流提供自动化生命周期管理的工具。它通过一组 Kyverno 集群策略（ClusterPolicies）实现，为临时测试环境提供强大的“护栏”，确保资源不会被过度占用，并自动记录测试历史。
 
@@ -21,7 +21,7 @@ Steer 的核心是一系列协同工作的 Kyverno `ClusterPolicy` 资源，它�
 
 2.  **设置初始 TTL**：一个 `Mutate` 策略会捕获新创建的受管命名空间，并自动为其添加一个 `cleanup.kyverno.io/ttl` 标签，其值由用户配置（默认为 `2h`）。这为命名空间设定了最终的“生命期限”。
 
-3.  **监控测试钩子**：另一个 `Mutate` 策略会持续监控受管命名空间中带有 `helm.sh/hook: test` 注解的 Pod。当这类 Pod 被删除时（通常意味着 `helm test` 运行结束），该策略会立即将对应命名空间的 `cleanup.kyverno.io/ttl` 标签更新为一个极短的值（如 `5s`），从而“提早”触发清理流程。
+3.  **监控测试钩子**：另一个 `Mutate` 策略会持续监控受管命名空间中带有 `helm.sh/hook: test` 注解的 Pod。当这类 Pod 被删除时（通常意味着 `helm test` 运行结束），该策略会立即将对应命名空间的 `cleanup.kyverno.io/ttl` 标签更新为一个较短的值（默认 `5s`，可配置），从而“提早”触发清理流程。
 
 4.  **捕获并记录历史**：一个 `Generate` 策略会在命名空间的 `cleanup.kyverno.io/ttl` 标签被设置或更新时触发。它利用 Kyverno 的 `apiCall` 上下文变量功能，实时查询该命名空间内所有预设类型的工作负载资源，并将这些资源的状态（名称、状态等）整理成一个 JSON 字符串。
 
@@ -57,8 +57,8 @@ Steer 的核心是一系列协同工作的 Kyverno `ClusterPolicy` 资源，它�
     git clone https://github.com/<your-username>/steer.git
     cd steer
 
-    # 安装到 steer 命名空间
-    helm install steer ./charts/steer -n steer --create-namespace
+    # 安装到 steer 命名空间（建议加上 --dependency-update 以自动拉取子 chart 依赖）
+    helm install steer ./charts/steer -n steer --create-namespace --dependency-update
     ```
 
 3.  **安装并启用 Kyverno（如果集群中没有）**
@@ -66,7 +66,7 @@ Steer 的核心是一系列协同工作的 Kyverno `ClusterPolicy` 资源，它�
     如果你的集群尚未安装 Kyverno，可以使用 `examples/values-with-kyverno.yaml` 文件来同时部署 Steer 和 Kyverno。
 
     ```bash
-    helm install steer ./charts/steer -n steer --create-namespace \
+    helm install steer ./charts/steer -n steer --create-namespace --dependency-update \
       -f examples/values-with-kyverno.yaml
     ```
 
@@ -90,7 +90,7 @@ Steer 的核心是一系列协同工作的 Kyverno `ClusterPolicy` 资源，它�
       kubectl get namespace my-helm-test --show-labels
       ```
 
-    - **测试完成**：当 `helm test` 结束并删除测试 Pod 后，再次检查该命名空间，`cleanup.kyverno.io/ttl` 标签会被更新为 `5s`。
+    - **测试完成**：当 `helm test` 结束并删除测试 Pod 后，再次检查该命名空间，`cleanup.kyverno.io/ttl` 标签会被更新为一个较短的值（默认 `5s`，可配置）。
 
     - **历史记录**：在命名空间被删除后，检查 Steer 所在的命名空间（或 `values.yaml` 中指定的历史命名空间），会发现一个名为 `my-helm-test` 的 ConfigMap。
       ```bash
@@ -109,6 +109,7 @@ Steer 的核心是一系列协同工作的 Kyverno `ClusterPolicy` 资源，它�
 | `namespaceSelector.value` | 用于识别受管命名空间的标签值。 | `true` |
 | `namespaceTTL` | 受管命名空间的默认存活时间。 | `2h` |
 | `cleanupOnTestComplete.enabled` | 是否在 Helm 测试钩子资源删除后立即清理命名空间。 | `true` |
+| `cleanupOnTestComplete.ttl` | 测试钩子资源删除后用于加速清理的 TTL（建议较短）。 | `5s` |
 | `history.enabled` | 是否启用测试历史记录。 | `true` |
 | `history.namespace` | 存储历史记录 ConfigMap 的命名空间。 | `{{ .Release.Namespace }}` |
 | `history.ttl` | 历史记录 ConfigMap 的存活时间。 | `24h` |
@@ -121,5 +122,5 @@ Steer 的核心是一系列协同工作的 Kyverno `ClusterPolicy` 资源，它�
 
 ```bash
 # 渲染模板并查看输出
-helm template steer ./charts/steer -n steer
+helm template steer ./charts/steer -n steer --dependency-update
 ```

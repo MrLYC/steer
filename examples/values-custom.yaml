@@ -1,13 +1,13 @@
-# Example: Custom configuration with external Kyverno
-# Usage:
+# 示例：使用外部已安装的 Kyverno，自定义 Steer 配置
+# 用法：
 #   helm install steer charts/steer -n steer -f examples/values-custom.yaml --create-namespace
 
-# Use a custom label selector for managed namespaces
+# 使用自定义标签选择器来识别受管命名空间
 namespaceSelector:
   key: "team.example.com/test-env"
   value: "true"
 
-# Extend namespace TTL to 4 hours
+# 将命名空间 TTL 延长到 4 小时
 namespaceTTL: "4h"
 
 cleanupOnTestComplete:
@@ -15,11 +15,11 @@ cleanupOnTestComplete:
 
 history:
   enabled: true
-  # Store history in a dedicated namespace
+  # 将历史记录存放到专用命名空间
   namespace: "steer-history"
-  # Keep history for 7 days
+  # 保留历史记录 7 天
   ttl: "168h"
-  # Record additional resource types
+  # 记录额外的资源类型
   resources:
     - group: ""
       version: "v1"
@@ -58,6 +58,6 @@ history:
       resource: "ingresses"
       kind: "Ingress"
 
-# Kyverno is already installed externally
+# Kyverno 已在集群中独立安装
 kyverno:
   enabled: false

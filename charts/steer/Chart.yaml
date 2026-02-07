@@ -1,9 +1,9 @@
 apiVersion: v2
 name: steer
 description: >-
-  A Helm chart that provides guardrail policies for Helm test workflows.
-  It leverages Kyverno ClusterPolicies to automate namespace lifecycle management,
-  including TTL-based cleanup, test-completion-driven deletion, and test history recording.
+  一个用于 Helm 测试工作流“护栏”的 Helm chart。
+  它通过 Kyverno ClusterPolicy 自动化命名空间生命周期管理，
+  包括基于 TTL 的清理、测试完成触发的删除，以及测试历史记录。
 type: application
 version: 0.1.0
 appVersion: "0.1.0"

@@ -1,43 +1,43 @@
 ============================================================
-  Steer - Helm Test Guardrail Policies
+  Steer - Helm 测试护栏策略
 ============================================================
 
-Steer has been installed in namespace: {{ .Release.Namespace }}
+Steer 已安装到命名空间：{{ .Release.Namespace }}
 
-The following policies have been deployed:
+已部署以下策略：
 
-1. Namespace TTL ({{ include "steer.fullname" . }}-ns-ttl)
-   Namespaces with label {{ .Values.namespaceSelector.key }}={{ .Values.namespaceSelector.value }}
-   will be automatically deleted after {{ .Values.namespaceTTL }}.
+1. 命名空间 TTL（{{ include "steer.fullname" . }}-ns-ttl）
+   带有标签 {{ .Values.namespaceSelector.key }}={{ .Values.namespaceSelector.value }} 的命名空间
+   会在 {{ .Values.namespaceTTL }} 后自动删除。
 
 {{- if .Values.cleanupOnTestComplete.enabled }}
-2. Cleanup on Test Complete ({{ include "steer.fullname" . }}-cleanup-on-test-complete)
-   When Helm test hook Pods are deleted from a managed namespace,
-   the namespace will be scheduled for immediate cleanup.
+2. 测试完成即清理（{{ include "steer.fullname" . }}-cleanup-on-test-complete）
+   当受管命名空间中的 Helm test hook Pod 被删除时，
+   该命名空间将被安排为立即清理。
 {{- end }}
 
 {{- if .Values.history.enabled }}
-3. Record History ({{ include "steer.fullname" . }}-record-history)
-   Resource status will be recorded as ConfigMaps in the
-   {{ include "steer.historyNamespace" . }} namespace before cleanup.
-   History ConfigMaps are retained for {{ .Values.history.ttl }}.
+3. 记录历史（{{ include "steer.fullname" . }}-record-history）
+   在清理前，会将资源状态记录为 ConfigMap 并存放在
+   {{ include "steer.historyNamespace" . }} 命名空间中。
+   历史 ConfigMap 会保留 {{ .Values.history.ttl }}。
 {{- end }}
 
-PREREQUISITES:
-  - Kyverno must be installed in the cluster.
+前置条件：
+  - 集群中必须安装 Kyverno。
 {{- if .Values.kyverno.enabled }}
-    (Kyverno is being deployed as a subchart)
+    （Kyverno 将作为子 chart 一同部署）
 {{- else }}
-    (Kyverno is NOT deployed by this chart. Ensure it is installed separately.)
+    （该 chart 不会部署 Kyverno，请确保集群已单独安装）
 {{- end }}
 
-USAGE:
-  Create a namespace with the steer label to enable lifecycle management:
+用法：
+  创建命名空间并打上 steer 标签，以启用生命周期管理：
 
     kubectl create namespace my-test-ns
     kubectl label namespace my-test-ns {{ .Values.namespaceSelector.key }}={{ .Values.namespaceSelector.value }}
 
-  Or include the label in your Helm chart's namespace template:
+  或者，在你的 Helm chart 的 Namespace 模板中包含该标签：
 
     apiVersion: v1
     kind: Namespace
@@ -46,7 +46,7 @@ USAGE:
       labels:
         {{ .Values.namespaceSelector.key }}: "{{ .Values.namespaceSelector.value }}"
 
-  View test history:
+  查看测试历史：
 
     kubectl get configmaps -n {{ include "steer.historyNamespace" . }} -l steer.io/history-for
 
