@@ -76,7 +76,6 @@ jobs:
             --create-namespace \
             --dependency-update \
             -f examples/values-with-kyverno.yaml \
-            --wait \
             --timeout 15m
 
       - name: Wait for Kyverno CRDs
@@ -92,6 +91,13 @@ jobs:
           echo "Timed out waiting for Kyverno CRDs" >&2
           kubectl get crd | head -n 50 || true
           exit 1
+
+      - name: Wait for Kyverno controllers
+        run: |
+          kubectl -n steer get deploy -o name || true
+          kubectl -n steer wait --for=condition=available deploy \
+            -l app.kubernetes.io/part-of=kyverno \
+            --timeout=10m
 
       - name: Helm test
         run: helm test steer -n steer --timeout 10m --logs
