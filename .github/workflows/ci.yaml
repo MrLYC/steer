@@ -114,7 +114,7 @@ jobs:
             --timeout 5m
 
       - name: Helm test
-        run: helm test steer -n steer --timeout 5m --logs
+        run: helm test steer -n steer --timeout 5m
 
       - name: Debug (on failure)
         if: failure()
@@ -130,6 +130,17 @@ jobs:
           echo "=== steer ==="
           kubectl get clusterpolicy || true
           kubectl -n steer get all || true
+          kubectl -n steer get events --sort-by=.lastTimestamp || true
+
+          echo "=== steer test pods ==="
+          kubectl -n steer get pods -o wide || true
+          kubectl -n steer get pods -l "helm.sh/hook=test" -o wide || true
+          for p in $(kubectl -n steer get pods -l "helm.sh/hook=test" -o name 2>/dev/null || true); do
+            echo "--- logs: $p (current) ---"
+            kubectl -n steer logs "$p" --all-containers --tail=200 || true
+            echo "--- logs: $p (previous) ---"
+            kubectl -n steer logs "$p" --all-containers --tail=200 --previous || true
+          done
 
           echo "=== kyverno ==="
           kubectl -n kyverno get all || true
