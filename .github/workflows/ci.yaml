@@ -31,17 +31,18 @@ jobs:
         run: helm lint charts/steer
 
       - name: Helm template (default values)
-        run: helm template steer charts/steer -n steer --dependency-update
+        run: helm template steer charts/steer -n steer --dependency-update >/dev/null
 
       - name: Helm template (with kyverno enabled)
-        run: helm template steer charts/steer -n steer --dependency-update -f examples/values-with-kyverno.yaml
+        run: helm template steer charts/steer -n steer --dependency-update -f examples/values-with-kyverno.yaml >/dev/null
 
       - name: Helm template (custom values)
-        run: helm template steer charts/steer -n steer --dependency-update -f examples/values-custom.yaml
+        run: helm template steer charts/steer -n steer --dependency-update -f examples/values-custom.yaml >/dev/null
 
   kind-helm-test:
     name: kind + helm test
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -60,6 +61,8 @@ jobs:
         uses: helm/kind-action@v1.10.0
         with:
           cluster_name: steer
+          node_image: kindest/node:v1.30.4
+          kubectl_version: v1.30.0
 
       - name: Add Kyverno Helm repo
         run: |
@@ -78,7 +81,7 @@ jobs:
             -n kyverno \
             --create-namespace \
             --wait \
-            --timeout 20m
+            --timeout 5m
 
       - name: Wait for Kyverno CRDs
         run: |
@@ -99,7 +102,7 @@ jobs:
           kubectl -n kyverno get deploy -o name || true
           kubectl -n kyverno wait --for=condition=available deploy \
             -l app.kubernetes.io/part-of=kyverno \
-            --timeout=10m
+            --timeout=5m
 
       - name: Install Steer chart
         run: |
@@ -108,20 +111,48 @@ jobs:
             --create-namespace \
             --dependency-update \
             --wait \
-            --timeout 10m
+            --timeout 5m
 
       - name: Helm test
-        run: helm test steer -n steer --timeout 10m --logs
+        run: helm test steer -n steer --timeout 5m --logs
 
       - name: Debug (on failure)
         if: failure()
         run: |
+          echo "=== versions ==="
+          helm version || true
+          kubectl version --output=yaml || true
+          kubectl get nodes -o wide || true
+
+          echo "=== cluster pods ==="
           kubectl get pods -A
+
+          echo "=== steer ==="
           kubectl get clusterpolicy || true
           kubectl -n steer get all || true
+
+          echo "=== kyverno ==="
           kubectl -n kyverno get all || true
           kubectl -n kyverno get deploy || true
-          for d in $(kubectl -n kyverno get deploy -o name 2>/dev/null | grep -i kyverno || true); do
-            echo "--- logs: $d (kyverno namespace) ---"
-            kubectl -n kyverno logs "$d" --tail=200 || true
+
+          echo "=== kyverno pods (describe) ==="
+          kubectl -n kyverno get pods -o wide || true
+          for p in $(kubectl -n kyverno get pods -o name 2>/dev/null | grep -i kyverno || true); do
+            echo "--- describe: $p ---"
+            kubectl -n kyverno describe "$p" || true
           done
+
+          echo "=== kyverno logs (current) ==="
+          for p in $(kubectl -n kyverno get pods -o name 2>/dev/null | grep -i kyverno || true); do
+            echo "--- logs: $p (current) ---"
+            kubectl -n kyverno logs "$p" --all-containers --tail=200 || true
+          done
+
+          echo "=== kyverno logs (previous) ==="
+          for p in $(kubectl -n kyverno get pods -o name 2>/dev/null | grep -i kyverno || true); do
+            echo "--- logs: $p (previous) ---"
+            kubectl -n kyverno logs "$p" --all-containers --tail=200 --previous || true
+          done
+
+          echo "=== kyverno events ==="
+          kubectl -n kyverno get events --sort-by=.lastTimestamp || true
