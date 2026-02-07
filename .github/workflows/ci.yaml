@@ -110,7 +110,6 @@ jobs:
           echo "STEER_NS=$ns" >> "$GITHUB_ENV"
 
           kubectl create namespace "$ns"
-          kubectl label namespace "$ns" steer.io/managed=true --overwrite
           kubectl get namespace "$ns" --show-labels
 
       - name: Install Steer chart
@@ -122,6 +121,48 @@ jobs:
             --set-string cleanupOnTestComplete.ttl=5s \
             --wait \
             --timeout 5m
+
+      - name: Wait for Steer policies
+        run: |
+          wait_policy_ready() {
+            name="$1"
+            attempts=60
+            while [ "$attempts" -gt 0 ]; do
+              status="$(kubectl get clusterpolicy "$name" -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || true)"
+              if echo "$status" | grep -q "True"; then
+                return 0
+              fi
+              attempts=$((attempts - 1))
+              sleep 2
+            done
+            echo "ERROR: ClusterPolicy $name not Ready" >&2
+            kubectl get clusterpolicy "$name" -o yaml || true
+            return 1
+          }
+
+          wait_policy_ready "steer-ns-ttl"
+          wait_policy_ready "steer-cleanup-on-test-complete"
+          wait_policy_ready "steer-record-history"
+
+      - name: Label Steer test namespace (managed)
+        run: |
+          kubectl label namespace "$STEER_NS" steer.io/managed=true --overwrite
+
+          echo "Waiting for cleanup ttl label to be set..."
+          attempts=60
+          while [ "$attempts" -gt 0 ]; do
+            ttl="$(kubectl get namespace "$STEER_NS" -o jsonpath='{.metadata.labels.cleanup\.kyverno\.io/ttl}' 2>/dev/null || true)"
+            if [ -n "$ttl" ]; then
+              echo "OK: cleanup.kyverno.io/ttl=$ttl"
+              exit 0
+            fi
+            attempts=$((attempts - 1))
+            sleep 2
+          done
+
+          echo "ERROR: cleanup.kyverno.io/ttl label was not set in time" >&2
+          kubectl get namespace "$STEER_NS" -o yaml || true
+          exit 1
 
       - name: Helm test
         run: helm test steer -n "$STEER_NS" --timeout 5m
