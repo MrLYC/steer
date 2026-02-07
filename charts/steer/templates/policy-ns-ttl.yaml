@@ -40,9 +40,17 @@ spec:
                 - Namespace
               operations:
                 - CREATE
+                - UPDATE
               selector:
                 matchLabels:
                   {{ include "steer.namespaceSelectorKey" . }}: {{ include "steer.namespaceSelectorValue" . | quote }}
+      preconditions:
+        all:
+          # Only set the initial TTL if it doesn't exist yet.
+          # This prevents overwriting a shorter TTL (e.g. cleanupOnTestComplete).
+          - key: "{{`{{ request.object.metadata.labels.\"cleanup.kyverno.io/ttl\" || '' }}`}}"
+            operator: Equals
+            value: ""
       mutate:
         patchStrategicMerge:
           metadata:

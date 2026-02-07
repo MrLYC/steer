@@ -54,11 +54,13 @@ spec:
         - name: remainingHookPods
           apiCall:
             urlPath: "/api/v1/namespaces/{{`{{ request.oldObject.metadata.namespace }}`}}/pods"
-            jmesPath: "items[?metadata.annotations.\"helm.sh/hook\" != null && (metadata.annotations.\"helm.sh/hook\" == 'test' || metadata.annotations.\"helm.sh/hook\" == 'test-success' || metadata.annotations.\"helm.sh/hook\" == 'test,before-hook-creation' || metadata.annotations.\"helm.sh/hook\" == 'test-success,before-hook-creation')] | length(@)"
+            # NOTE: On a DELETE admission request, the object may still appear in list calls.
+            # Exclude the resource being deleted so we can detect the "last hook" correctly.
+            jmesPath: "items[?metadata.name != '{{`{{ request.oldObject.metadata.name }}`}}' && metadata.annotations.\"helm.sh/hook\" != null && (metadata.annotations.\"helm.sh/hook\" == 'test' || metadata.annotations.\"helm.sh/hook\" == 'test-success' || metadata.annotations.\"helm.sh/hook\" == 'test,before-hook-creation' || metadata.annotations.\"helm.sh/hook\" == 'test-success,before-hook-creation')] | length(@)"
         - name: remainingHookJobs
           apiCall:
             urlPath: "/apis/batch/v1/namespaces/{{`{{ request.oldObject.metadata.namespace }}`}}/jobs"
-            jmesPath: "items[?metadata.annotations.\"helm.sh/hook\" != null && (metadata.annotations.\"helm.sh/hook\" == 'test' || metadata.annotations.\"helm.sh/hook\" == 'test-success' || metadata.annotations.\"helm.sh/hook\" == 'test,before-hook-creation' || metadata.annotations.\"helm.sh/hook\" == 'test-success,before-hook-creation')] | length(@)"
+            jmesPath: "items[?metadata.name != '{{`{{ request.oldObject.metadata.name }}`}}' && metadata.annotations.\"helm.sh/hook\" != null && (metadata.annotations.\"helm.sh/hook\" == 'test' || metadata.annotations.\"helm.sh/hook\" == 'test-success' || metadata.annotations.\"helm.sh/hook\" == 'test,before-hook-creation' || metadata.annotations.\"helm.sh/hook\" == 'test-success,before-hook-creation')] | length(@)"
       preconditions:
         all:
           - key: "{{`{{ request.oldObject.metadata.annotations.\"helm.sh/hook\" || '' }}`}}"
