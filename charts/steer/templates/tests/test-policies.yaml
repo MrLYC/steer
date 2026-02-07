@@ -19,19 +19,35 @@ spec:
         - |
           echo "=== Steer 策略校验 ==="
 
+          wait_for_policy_ready() {
+            name="$1"
+            attempts=60
+            while [ "$attempts" -gt 0 ]; do
+              status="$(kubectl get clusterpolicy "$name" -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || true)"
+              if echo "$status" | grep -q "True"; then
+                return 0
+              fi
+              attempts=$((attempts - 1))
+              sleep 2
+            done
+            echo "  ERROR: ClusterPolicy $name 未就绪（超时）" >&2
+            kubectl get clusterpolicy "$name" -o yaml || true
+            return 1
+          }
+
           echo "检查 ClusterPolicy: {{ include "steer.fullname" . }}-ns-ttl..."
-          kubectl get clusterpolicy {{ include "steer.fullname" . }}-ns-ttl -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' | grep -q "True"
+          wait_for_policy_ready "{{ include "steer.fullname" . }}-ns-ttl"
           echo "  OK: ns-ttl 策略已就绪"
 
           {{- if .Values.cleanupOnTestComplete.enabled }}
           echo "检查 ClusterPolicy: {{ include "steer.fullname" . }}-cleanup-on-test-complete..."
-          kubectl get clusterpolicy {{ include "steer.fullname" . }}-cleanup-on-test-complete -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' | grep -q "True"
+          wait_for_policy_ready "{{ include "steer.fullname" . }}-cleanup-on-test-complete"
           echo "  OK: cleanup-on-test-complete 策略已就绪"
           {{- end }}
 
           {{- if .Values.history.enabled }}
           echo "检查 ClusterPolicy: {{ include "steer.fullname" . }}-record-history..."
-          kubectl get clusterpolicy {{ include "steer.fullname" . }}-record-history -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' | grep -q "True"
+          wait_for_policy_ready "{{ include "steer.fullname" . }}-record-history"
           echo "  OK: record-history 策略已就绪"
           {{- end }}
 
