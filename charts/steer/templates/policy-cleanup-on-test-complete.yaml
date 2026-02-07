@@ -46,8 +46,6 @@ spec:
                 - Pod
               operations:
                 - UPDATE
-              subresources:
-                - status
               namespaceSelector:
                 matchLabels:
                   {{ include "steer.namespaceSelectorKey" . }}: {{ include "steer.namespaceSelectorValue" . | quote }}
@@ -98,8 +96,6 @@ spec:
                 - Job
               operations:
                 - UPDATE
-              subresources:
-                - status
               namespaceSelector:
                 matchLabels:
                   {{ include "steer.namespaceSelectorKey" . }}: {{ include "steer.namespaceSelectorValue" . | quote }}
@@ -107,7 +103,7 @@ spec:
         - name: remainingHookPods
           apiCall:
             urlPath: "/api/v1/namespaces/{{`{{ request.object.metadata.namespace }}`}}/pods"
-            jmesPath: "items[metadata.annotations.\"helm.sh/hook\" != null && (metadata.annotations.\"helm.sh/hook\" == 'test' || metadata.annotations.\"helm.sh/hook\" == 'test-success' || metadata.annotations.\"helm.sh/hook\" == 'test,before-hook-creation' || metadata.annotations.\"helm.sh/hook\" == 'test-success,before-hook-creation') && status.phase != 'Succeeded'] | length(@)"
+            jmesPath: "items[?metadata.annotations.\"helm.sh/hook\" != null && (metadata.annotations.\"helm.sh/hook\" == 'test' || metadata.annotations.\"helm.sh/hook\" == 'test-success' || metadata.annotations.\"helm.sh/hook\" == 'test,before-hook-creation' || metadata.annotations.\"helm.sh/hook\" == 'test-success,before-hook-creation') && status.phase != 'Succeeded'] | length(@)"
         - name: remainingHookJobs
           apiCall:
             urlPath: "/apis/batch/v1/namespaces/{{`{{ request.object.metadata.namespace }}`}}/jobs"
