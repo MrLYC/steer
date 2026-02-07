@@ -1,5 +1,7 @@
 # Steer - Helm 测试护栏（Guardrails）
 
+[English Version](https://www.zdoc.app/en/MrLYC/steer)
+
 Steer 是一种为基于 Helm 测试的工作流提供自动化生命周期管理的工具。它通过一组 Kyverno 集群策略（ClusterPolicies）实现，为临时测试环境提供强大的“护栏”，确保资源不会被过度占用，并自动记录测试历史。
 
 该项目不再是早期的 Operator 实现，而是完全基于 Kyverno 策略的轻量级 Helm Chart。
