@@ -54,8 +54,8 @@ spec:
           apiCall:
             urlPath: "/api/v1/namespaces/{{`{{ request.oldObject.metadata.namespace }}`}}/pods"
             # NOTE: On a DELETE admission request, the object may still appear in list calls.
-            # Exclude the resource being deleted so we can detect the "last hook" correctly.
-            jmesPath: "items[?metadata.name != '{{`{{ request.oldObject.metadata.name }}`}}' && metadata.annotations.\"helm.sh/hook\" != null && (metadata.annotations.\"helm.sh/hook\" == 'test' || metadata.annotations.\"helm.sh/hook\" == 'test-success' || metadata.annotations.\"helm.sh/hook\" == 'test,before-hook-creation' || metadata.annotations.\"helm.sh/hook\" == 'test-success,before-hook-creation')] | length(@)"
+            # We count all hook pods and treat {0,1} as "last hook".
+            jmesPath: "items[?metadata.annotations.\"helm.sh/hook\" != null && (metadata.annotations.\"helm.sh/hook\" == 'test' || metadata.annotations.\"helm.sh/hook\" == 'test-success' || metadata.annotations.\"helm.sh/hook\" == 'test,before-hook-creation' || metadata.annotations.\"helm.sh/hook\" == 'test-success,before-hook-creation')] | length(@)"
         - name: remainingHookJobs
           apiCall:
             urlPath: "/apis/batch/v1/namespaces/{{`{{ request.oldObject.metadata.namespace }}`}}/jobs"
@@ -70,8 +70,10 @@ spec:
               - "test,before-hook-creation"
               - "test-success,before-hook-creation"
           - key: "{{`{{ remainingHookPods }}`}}"
-            operator: Equals
-            value: 0
+            operator: AnyIn
+            value:
+              - 0
+              - 1
           - key: "{{`{{ remainingHookJobs }}`}}"
             operator: Equals
             value: 0
@@ -105,8 +107,8 @@ spec:
           apiCall:
             urlPath: "/apis/batch/v1/namespaces/{{`{{ request.oldObject.metadata.namespace }}`}}/jobs"
             # NOTE: On a DELETE admission request, the object may still appear in list calls.
-            # Exclude the resource being deleted so we can detect the "last hook" correctly.
-            jmesPath: "items[?metadata.name != '{{`{{ request.oldObject.metadata.name }}`}}' && metadata.annotations.\"helm.sh/hook\" != null && (metadata.annotations.\"helm.sh/hook\" == 'test' || metadata.annotations.\"helm.sh/hook\" == 'test-success' || metadata.annotations.\"helm.sh/hook\" == 'test,before-hook-creation' || metadata.annotations.\"helm.sh/hook\" == 'test-success,before-hook-creation')] | length(@)"
+            # We count all hook jobs and treat {0,1} as "last hook".
+            jmesPath: "items[?metadata.annotations.\"helm.sh/hook\" != null && (metadata.annotations.\"helm.sh/hook\" == 'test' || metadata.annotations.\"helm.sh/hook\" == 'test-success' || metadata.annotations.\"helm.sh/hook\" == 'test,before-hook-creation' || metadata.annotations.\"helm.sh/hook\" == 'test-success,before-hook-creation')] | length(@)"
       preconditions:
         all:
           - key: "{{`{{ request.oldObject.metadata.annotations.\"helm.sh/hook\" || '' }}`}}"
@@ -120,8 +122,10 @@ spec:
             operator: Equals
             value: 0
           - key: "{{`{{ remainingHookJobs }}`}}"
-            operator: Equals
-            value: 0
+            operator: AnyIn
+            value:
+              - 0
+              - 1
       mutate:
         targets:
           - apiVersion: v1
