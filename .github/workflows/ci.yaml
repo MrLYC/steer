@@ -119,6 +119,7 @@ jobs:
             -n "$STEER_NS" \
             --create-namespace \
             --dependency-update \
+            --set-string cleanupOnTestComplete.ttl=5s \
             --wait \
             --timeout 5m
 
@@ -139,7 +140,7 @@ jobs:
           done
 
           echo "Waiting for namespace $STEER_NS to be deleted..."
-          attempts=60
+          attempts=120
           while [ "$attempts" -gt 0 ]; do
             if ! kubectl get namespace "$STEER_NS" >/dev/null 2>&1; then
               echo "OK: namespace deleted"
