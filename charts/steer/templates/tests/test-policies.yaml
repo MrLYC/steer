@@ -12,7 +12,9 @@ spec:
   serviceAccountName: {{ include "steer.fullname" . }}-test
   containers:
     - name: test
-      image: registry.k8s.io/kubectl:v1.30.0
+      # Pin to a known-good image digest to avoid tag drift in CI.
+      # NOTE: Some minimal kubectl images don't include /bin/sh, but this test uses a shell script.
+      image: bitnami/kubectl@sha256:87cb8e323d39e28d77cb0745d2352bbc1f2c26c8c1f15c5f4a3ab5f685c23ec1
       command:
         - /bin/sh
         - -ec
