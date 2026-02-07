@@ -78,9 +78,7 @@ jobs:
             -n kyverno \
             --create-namespace \
             --wait \
-            --timeout 20m \
-            --kube-api-qps 50 \
-            --kube-api-burst 100
+            --timeout 20m
 
       - name: Wait for Kyverno CRDs
         run: |
