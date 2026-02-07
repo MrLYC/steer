@@ -43,9 +43,10 @@ spec:
               kinds:
                 - Namespace
               operations:
-                - CREATE
                 - UPDATE
               selector:
+                matchLabels:
+                  {{ include "steer.namespaceSelectorKey" . }}: {{ include "steer.namespaceSelectorValue" . | quote }}
                 matchLabels:
                   {{ include "steer.namespaceSelectorKey" . }}: {{ include "steer.namespaceSelectorValue" . | quote }}
       preconditions:
@@ -53,6 +54,9 @@ spec:
           - key: "{{`{{ request.object.metadata.labels.\"cleanup.kyverno.io/ttl\" || '' }}`}}"
             operator: NotEquals
             value: ""
+          - key: "{{`{{ request.oldObject.metadata.labels.\"cleanup.kyverno.io/ttl\" || '' }}`}}"
+            operator: NotEquals
+            value: "{{`{{ request.object.metadata.labels.\"cleanup.kyverno.io/ttl\" || '' }}`}}"
       context:
         {{- range .Values.history.resources }}
         - name: {{ .kind | lower }}List
