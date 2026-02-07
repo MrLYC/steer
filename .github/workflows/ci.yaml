@@ -66,32 +66,32 @@ jobs:
           helm repo add kyverno https://kyverno.github.io/kyverno/
           helm repo update
 
-      - name: Install Kyverno
-        run: |
-          helm install kyverno kyverno/kyverno \
-            -n kyverno \
-            --create-namespace \
-            --wait \
-            --timeout 10m
-
-          kubectl rollout status -n kyverno deploy/kyverno-admission-controller --timeout=10m
-          kubectl rollout status -n kyverno deploy/kyverno-background-controller --timeout=10m
-          kubectl rollout status -n kyverno deploy/kyverno-cleanup-controller --timeout=10m
-          kubectl rollout status -n kyverno deploy/kyverno-reports-controller --timeout=10m
-
-          kubectl get crd clusterpolicies.kyverno.io
-
       - name: Build chart dependencies
         run: helm dependency build charts/steer
 
-      - name: Install Steer chart
+      - name: Install Steer chart (with Kyverno subchart)
         run: |
           helm install steer ./charts/steer \
             -n steer \
             --create-namespace \
             --dependency-update \
+            -f examples/values-with-kyverno.yaml \
             --wait \
-            --timeout 10m
+            --timeout 15m
+
+      - name: Wait for Kyverno CRDs
+        run: |
+          attempts=60
+          while [ "$attempts" -gt 0 ]; do
+            if kubectl get crd clusterpolicies.kyverno.io >/dev/null 2>&1; then
+              exit 0
+            fi
+            attempts=$((attempts - 1))
+            sleep 2
+          done
+          echo "Timed out waiting for Kyverno CRDs" >&2
+          kubectl get crd | head -n 50 || true
+          exit 1
 
       - name: Helm test
         run: helm test steer -n steer --timeout 10m --logs
@@ -100,6 +100,10 @@ jobs:
         if: failure()
         run: |
           kubectl get pods -A
-          kubectl get clusterpolicy
-          kubectl -n steer get all
-          kubectl -n kyverno get all
+          kubectl get clusterpolicy || true
+          kubectl -n steer get all || true
+          kubectl -n steer get deploy || true
+          for d in $(kubectl -n steer get deploy -o name 2>/dev/null | grep -i kyverno || true); do
+            echo "--- logs: $d (steer namespace) ---"
+            kubectl -n steer logs "$d" --tail=200 || true
+          done
