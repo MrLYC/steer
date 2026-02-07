@@ -47,8 +47,6 @@ spec:
               selector:
                 matchLabels:
                   {{ include "steer.namespaceSelectorKey" . }}: {{ include "steer.namespaceSelectorValue" . | quote }}
-                matchLabels:
-                  {{ include "steer.namespaceSelectorKey" . }}: {{ include "steer.namespaceSelectorValue" . | quote }}
       preconditions:
         all:
           - key: "{{`{{ request.object.metadata.labels.\"cleanup.kyverno.io/ttl\" || '' }}`}}"
