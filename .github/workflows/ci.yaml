@@ -167,6 +167,31 @@ jobs:
       - name: Helm test
         run: helm test steer -n "$STEER_NS" --timeout 5m
 
+      - name: Force delete Helm test hooks
+        run: |
+          echo "Detecting helm test hook pods/jobs..."
+
+          hook_pods="$(kubectl -n "$STEER_NS" get pods -o jsonpath='{range .items[?(@.metadata.annotations["helm.sh/hook"]=="test")]}{.metadata.name}{" "}{end}' 2>/dev/null || true)"
+          hook_jobs="$(kubectl -n "$STEER_NS" get jobs -o jsonpath='{range .items[?(@.metadata.annotations["helm.sh/hook"]=="test")]}{.metadata.name}{" "}{end}' 2>/dev/null || true)"
+
+          if [ -n "$hook_pods" ]; then
+            echo "Hook pods: $hook_pods"
+            for p in $hook_pods; do
+              kubectl -n "$STEER_NS" delete pod "$p" --ignore-not-found --wait=false
+            done
+          else
+            echo "No hook pods found"
+          fi
+
+          if [ -n "$hook_jobs" ]; then
+            echo "Hook jobs: $hook_jobs"
+            for j in $hook_jobs; do
+              kubectl -n "$STEER_NS" delete job "$j" --ignore-not-found --wait=false
+            done
+          else
+            echo "No hook jobs found"
+          fi
+
       - name: Verify namespace auto-deleted
         run: |
           echo "Waiting for cleanup-on-test-complete TTL to be set (expected: 5s)..."
